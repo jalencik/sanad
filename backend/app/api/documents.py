@@ -1,0 +1,105 @@
+import uuid
+
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.deps import get_current_user
+from app.core.config import get_settings
+from app.db.session import get_db
+from app.models.document import Document
+from app.models.user import User
+from app.schemas.document import DocumentDetail, DocumentSummary
+from app.services import storage
+from app.services.pipeline import process_document
+
+router = APIRouter(prefix="/api/documents", tags=["documents"])
+settings = get_settings()
+
+
+async def _get_owned_document(document_id: uuid.UUID, user: User, db: AsyncSession) -> Document:
+    document = await db.get(Document, document_id)
+    if document is None or document.user_id != user.id:
+        raise HTTPException(404, "Document not found")
+    return document
+
+
+@router.post("", response_model=DocumentDetail, status_code=201)
+async def upload_document(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Document:
+    if file.content_type not in settings.allowed_mime_types:
+        raise HTTPException(415, f"Unsupported file type: {file.content_type}")
+
+    stored_filename, size = await storage.save_upload(file)
+
+    if size > settings.max_upload_size_mb * 1024 * 1024:
+        storage.resolve_path(stored_filename).unlink(missing_ok=True)
+        raise HTTPException(413, f"File exceeds {settings.max_upload_size_mb}MB limit")
+
+    document = Document(
+        user_id=current_user.id,
+        original_filename=file.filename or stored_filename,
+        stored_filename=stored_filename,
+        mime_type=file.content_type,
+        file_size=size,
+    )
+    db.add(document)
+    await db.commit()
+    await db.refresh(document)
+
+    background_tasks.add_task(process_document, document.id)
+
+    return document
+
+
+@router.get("", response_model=list[DocumentSummary])
+async def list_documents(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[Document]:
+    result = await db.execute(
+        select(Document).where(Document.user_id == current_user.id).order_by(Document.created_at.desc())
+    )
+    return list(result.scalars().all())
+
+
+@router.get("/{document_id}", response_model=DocumentDetail)
+async def get_document(
+    document_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Document:
+    return await _get_owned_document(document_id, current_user, db)
+
+
+@router.get("/{document_id}/file")
+async def get_document_file(
+    document_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> FileResponse:
+    document = await _get_owned_document(document_id, current_user, db)
+
+    path = storage.resolve_path(document.stored_filename)
+    if not path.exists():
+        raise HTTPException(404, "File missing on disk")
+
+    return FileResponse(path, media_type=document.mime_type, filename=document.original_filename)
+
+
+@router.delete("/{document_id}", status_code=204)
+async def delete_document(
+    document_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    document = await _get_owned_document(document_id, current_user, db)
+
+    storage.resolve_path(document.stored_filename).unlink(missing_ok=True)
+    await db.delete(document)
+    await db.commit()

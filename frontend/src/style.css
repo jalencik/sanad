@@ -1,0 +1,130 @@
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&family=Inter:wght@400;500;600;700&display=swap');
+
+@import "tailwindcss";
+
+@import "tw-animate-css";
+
+@import "shadcn-vue/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+    --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+    --font-display: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-destructive-foreground: var(--destructive-foreground);
+    --color-success: var(--success);
+    --color-success-foreground: var(--success-foreground);
+    --color-warning: var(--warning);
+    --color-warning-foreground: var(--warning-foreground);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    --radius-sm: calc(var(--radius) - 4px);
+    --radius-md: calc(var(--radius) - 2px);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) + 4px);
+}
+
+/*
+ * Palette: warm paper neutrals + one dominant ink-navy + one bronze accent.
+ * Deliberately not the default shadcn slate/zinc + indigo combination.
+ */
+:root {
+    --background: oklch(0.985 0.004 90);
+    --foreground: oklch(0.19 0.03 265);
+
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.19 0.03 265);
+
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.19 0.03 265);
+
+    --primary: oklch(0.28 0.06 265);
+    --primary-foreground: oklch(0.98 0.004 90);
+
+    --secondary: oklch(0.95 0.01 90);
+    --secondary-foreground: oklch(0.28 0.06 265);
+
+    --muted: oklch(0.955 0.008 90);
+    --muted-foreground: oklch(0.48 0.02 265);
+
+    --accent: oklch(0.62 0.11 70);
+    --accent-foreground: oklch(0.17 0.02 70);
+
+    --destructive: oklch(0.5 0.19 25);
+    --destructive-foreground: oklch(0.98 0.004 90);
+
+    --success: oklch(0.5 0.11 150);
+    --success-foreground: oklch(0.98 0.004 90);
+
+    --warning: oklch(0.62 0.11 70);
+    --warning-foreground: oklch(0.17 0.02 70);
+
+    --border: oklch(0.89 0.01 90);
+    --input: oklch(0.89 0.01 90);
+    --ring: oklch(0.62 0.11 70);
+
+    --radius: 0.5rem;
+}
+
+.dark {
+    --background: oklch(0.19 0.025 265);
+    --foreground: oklch(0.93 0.01 90);
+
+    --card: oklch(0.23 0.028 265);
+    --card-foreground: oklch(0.93 0.01 90);
+
+    --popover: oklch(0.23 0.028 265);
+    --popover-foreground: oklch(0.93 0.01 90);
+
+    --primary: oklch(0.78 0.05 250);
+    --primary-foreground: oklch(0.19 0.025 265);
+
+    --secondary: oklch(0.29 0.03 265);
+    --secondary-foreground: oklch(0.93 0.01 90);
+
+    --muted: oklch(0.27 0.026 265);
+    --muted-foreground: oklch(0.68 0.02 90);
+
+    --accent: oklch(0.7 0.12 70);
+    --accent-foreground: oklch(0.17 0.02 70);
+
+    --destructive: oklch(0.62 0.19 25);
+    --destructive-foreground: oklch(0.98 0.004 90);
+
+    --success: oklch(0.62 0.11 150);
+    --success-foreground: oklch(0.17 0.03 150);
+
+    --warning: oklch(0.7 0.12 70);
+    --warning-foreground: oklch(0.17 0.02 70);
+
+    --border: oklch(1 0 0 / 12%);
+    --input: oklch(1 0 0 / 16%);
+    --ring: oklch(0.7 0.12 70);
+}
+
+@layer base {
+    * {
+        @apply border-border outline-ring/50;
+    }
+
+    body {
+        @apply bg-background text-foreground;
+        @apply font-sans;
+    }
+}

@@ -1,0 +1,7 @@
+.venv
+__pycache__
+uploads
+data
+tests
+test_uploads
+test_sanad.db
