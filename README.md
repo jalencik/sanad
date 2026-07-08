@@ -6,7 +6,8 @@ language they were issued in, and returns structured details plus a plain-langua
 summary in seconds.
 
 Built with a Python/FastAPI backend, a Vue 3 + shadcn-vue frontend, self-hosted
-Tesseract OCR, and Claude for structured extraction and summarization.
+Tesseract OCR, and the Gemini API (free tier) for structured extraction and
+summarization.
 
 ## How it works
 
@@ -20,8 +21,8 @@ The workspace is a single view split by a vertical divider:
   in both its original language and English.
 
 Documents are processed in the background: Tesseract OCR extracts the text (tuned for
-Uzbek, Russian, and English — Latin and Cyrillic script both), then a single Claude API
-call returns structured fields and the two summaries via a tool-use schema.
+Uzbek, Russian, and English — Latin and Cyrillic script both), then a single Gemini API
+call returns structured fields and the two summaries via a JSON schema.
 
 Accounts are required to use the workspace (sign up / sign in), and the interface is
 available in English, Uzbek, and Russian.
@@ -32,10 +33,17 @@ available in English, Uzbek, and Russian.
 |---|---|
 | Backend | FastAPI, SQLAlchemy 2.0 (async), Alembic, PostgreSQL |
 | OCR | Tesseract (`pytesseract` + `PyMuPDF` for PDF rendering) |
-| AI | Claude API (Anthropic), structured tool-use extraction |
+| AI | Gemini API (Google, free tier), structured JSON-schema extraction |
 | Auth | Argon2 password hashing, JWT access/refresh tokens in httpOnly cookies |
 | Frontend | Vue 3, Vite, TypeScript, Tailwind CSS, shadcn-vue, Pinia, vue-router, vue-i18n |
 | Infra | Docker Compose (Postgres + backend + nginx-served frontend) |
+
+## Getting a free Gemini API key
+
+1. Go to [Google AI Studio](https://aistudio.google.com/apikey).
+2. Sign in with a Google account.
+3. Click **Create API key**. No billing/credit card is required for the free tier.
+4. Copy the key — you'll paste it into `.env` below as `GEMINI_API_KEY`.
 
 ## Running it
 
@@ -43,13 +51,33 @@ available in English, Uzbek, and Russian.
 
 ```bash
 cp .env.example .env
-# edit .env: set ANTHROPIC_API_KEY and JWT_SECRET_KEY
-#   generate a secret with: python -c "import secrets; print(secrets.token_hex(32))"
-
-docker compose up --build
 ```
 
-The frontend will be available at `http://localhost:8080`.
+Open `.env` and fill in two values:
+
+```env
+GEMINI_API_KEY=your-key-from-google-ai-studio
+JWT_SECRET_KEY=<run: python -c "import secrets; print(secrets.token_hex(32))">
+```
+
+Then build and start everything:
+
+```bash
+docker compose up --build -d
+```
+
+Check that all three services are healthy:
+
+```bash
+docker compose ps
+```
+
+The app is served at `http://localhost:8080`. Watch the pipeline as you upload a
+document:
+
+```bash
+docker compose logs -f backend
+```
 
 ### Locally, without Docker
 
@@ -60,7 +88,7 @@ cd backend
 python -m venv .venv
 .venv/Scripts/activate   # or source .venv/bin/activate on macOS/Linux
 pip install -r requirements-dev.txt
-cp ../.env.example .env  # fill in ANTHROPIC_API_KEY, JWT_SECRET_KEY
+cp ../.env.example .env  # fill in GEMINI_API_KEY, JWT_SECRET_KEY
 # for local dev without Postgres, set DATABASE_URL to a sqlite path instead, e.g.
 #   DATABASE_URL=sqlite+aiosqlite:///./dev.db
 alembic upgrade head
@@ -96,7 +124,7 @@ backend/
     db/          # SQLAlchemy engine/session setup
     models/      # ORM models (User, Document)
     schemas/     # Pydantic request/response models
-    services/    # OCR, Claude integration, upload storage, pipeline orchestration, rate limiting
+    services/    # OCR, Gemini integration, upload storage, pipeline orchestration, rate limiting
   alembic/       # database migrations
   tests/         # pytest suite
 

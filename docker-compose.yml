@@ -19,8 +19,8 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql+asyncpg://sanad:sanad@db:5432/sanad
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY must be set in .env}
-      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-5}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:?GEMINI_API_KEY must be set in .env}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
       UPLOAD_DIR: /app/uploads
       CORS_ORIGINS: '["http://localhost", "http://localhost:8080"]'
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY must be set in .env}
@@ -42,7 +42,8 @@ services:
     ports:
       - "8080:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
   postgres_data:

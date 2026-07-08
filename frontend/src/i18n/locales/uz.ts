@@ -26,13 +26,13 @@ export default {
       extractConfidence: 'Har bir hujjat uchun OCR aniqligi kuzatiladi',
       explainTitle: 'Oddiy tilda tushuntiradi',
       explainBody:
-        "Claude hujjatning asosiy mazmunini asl tilida va ingliz tilida qisqacha bayon qiladi — hech narsa tarjimada yo'qolmaydi.",
+        "Gemini hujjatning asosiy mazmunini asl tilida va ingliz tilida qisqacha bayon qiladi — hech narsa tarjimada yo'qolmaydi.",
     },
     languagesTitle: "Ko'p tilli hujjatlar uchun yaratilgan",
     closingTitle: "Haqiqiy hujjat bilan sinab ko'ring.",
     closingSubtitle: "Skanerlangan hujjatni yuklang va ish maydonini amalda ko'ring.",
     footerTagline: "Sanad — hujjatlarni tahlil qilish platformasi.",
-    footerStack: "FastAPI, Tesseract OCR, Claude va Vue asosida yaratilgan.",
+    footerStack: "FastAPI, Tesseract OCR, Gemini va Vue asosida yaratilgan.",
   },
   auth: {
     emailLabel: 'Elektron pochta',

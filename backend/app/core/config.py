@@ -12,8 +12,8 @@ class Settings(BaseSettings):
     environment: str = "development"
     database_url: str = "postgresql+asyncpg://sanad:sanad@localhost:5432/sanad"
 
-    anthropic_api_key: str = ""
-    anthropic_model: str = "claude-sonnet-5"
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.5-flash"
 
     upload_dir: Path = BASE_DIR / "uploads"
     max_upload_size_mb: int = 25

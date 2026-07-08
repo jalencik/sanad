@@ -26,13 +26,13 @@ export default {
       extractConfidence: 'OCR confidence tracked per document',
       explainTitle: 'Explains it in plain language',
       explainBody:
-        "Claude summarizes the document's main point in its original language and in English — so nothing gets lost in translation.",
+        "Gemini summarizes the document's main point in its original language and in English — so nothing gets lost in translation.",
     },
     languagesTitle: 'Built for multilingual documents',
     closingTitle: 'Try it with a real document.',
     closingSubtitle: 'Upload a scan and see the workspace in action.',
     footerTagline: 'Sanad — document intelligence platform.',
-    footerStack: 'Built with FastAPI, Tesseract OCR, Claude, and Vue.',
+    footerStack: 'Built with FastAPI, Tesseract OCR, Gemini, and Vue.',
   },
   auth: {
     emailLabel: 'Email',
