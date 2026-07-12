@@ -34,3 +34,4 @@ class UserPublic(BaseModel):
     id: uuid.UUID
     email: str
     full_name: str
+    is_admin: bool

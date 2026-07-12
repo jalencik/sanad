@@ -29,4 +29,16 @@ export interface AuthUser {
   id: string
   email: string
   full_name: string
+  is_admin: boolean
+}
+
+export interface AdminUserSummary {
+  id: string
+  email: string
+  full_name: string
+  is_admin: boolean
+  created_at: string
+  document_count: number
+  done_count: number
+  error_count: number
 }

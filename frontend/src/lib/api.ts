@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { AuthUser, DocumentDetail, DocumentSummary } from './types'
+import type { AdminUserSummary, AuthUser, DocumentDetail, DocumentSummary } from './types'
 
 export const api = axios.create({
   baseURL: '/api',
@@ -82,4 +82,11 @@ export async function deleteDocument(id: string): Promise<void> {
 
 export function documentFileUrl(id: string): string {
   return `/api/documents/${id}/file`
+}
+
+export const adminApi = {
+  async listUsers(): Promise<AdminUserSummary[]> {
+    const { data } = await api.get<AdminUserSummary[]>('/admin/users')
+    return data
+  },
 }

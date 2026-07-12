@@ -1,6 +1,7 @@
 export default {
   nav: {
     openWorkspace: 'Open workspace',
+    admin: 'Admin',
     signIn: 'Sign in',
     signUp: 'Sign up',
     signOut: 'Sign out',
@@ -109,6 +110,22 @@ export default {
       englishTab: 'English',
       noOriginal: 'No summary was generated for this document.',
       noEnglish: 'No English summary was generated for this document.',
+    },
+  },
+  admin: {
+    title: 'Admin panel',
+    subtitle: '{count} registered users',
+    loading: 'Loading users…',
+    loadError: 'Could not load the user list.',
+    columns: {
+      user: 'User',
+      joined: 'Joined',
+      documents: 'Documents',
+      done: 'Processed',
+      errors: 'Failed',
+      role: 'Role',
+      admin: 'Admin',
+      member: 'Member',
     },
   },
 } satisfies Record<string, unknown>

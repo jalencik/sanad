@@ -44,6 +44,10 @@ def _set_auth_cookies(response: Response, user_id: uuid.UUID) -> None:
     )
 
 
+def _is_admin_email(email: str) -> bool:
+    return email in {e.lower() for e in settings.admin_emails}
+
+
 @router.post("/signup", response_model=UserPublic, status_code=201)
 async def signup(payload: SignupRequest, response: Response, db: AsyncSession = Depends(get_db)) -> User:
     email = payload.email.lower()
@@ -55,6 +59,7 @@ async def signup(payload: SignupRequest, response: Response, db: AsyncSession = 
         email=email,
         hashed_password=hash_password(payload.password),
         full_name=payload.full_name,
+        is_admin=_is_admin_email(email),
     )
     db.add(user)
     await db.commit()
@@ -78,6 +83,13 @@ async def login(
     user = await db.scalar(select(User).where(User.email == email))
     if user is None or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(401, "Incorrect email or password")
+
+    # Re-sync admin status on every login so editing ADMIN_EMAILS takes
+    # effect without needing to touch the database directly.
+    should_be_admin = _is_admin_email(email)
+    if user.is_admin != should_be_admin:
+        user.is_admin = should_be_admin
+        await db.commit()
 
     _set_auth_cookies(response, user.id)
     return user

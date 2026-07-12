@@ -34,6 +34,10 @@ class Settings(BaseSettings):
         "http://localhost",
     ]
 
+    # Emails in this list are granted admin access on signup/login. Controlled
+    # entirely by env var - no manual DB edits needed to promote an account.
+    admin_emails: list[str] = []
+
     jwt_secret_key: str = "dev-only-insecure-secret-change-me"
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 7

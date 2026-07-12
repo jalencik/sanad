@@ -1,6 +1,7 @@
 export default {
   nav: {
     openWorkspace: 'Ish maydonini ochish',
+    admin: 'Admin panel',
     signIn: 'Kirish',
     signUp: "Ro'yxatdan o'tish",
     signOut: 'Chiqish',
@@ -109,6 +110,22 @@ export default {
       englishTab: 'Ingliz tili',
       noOriginal: 'Ushbu hujjat uchun xulosa yaratilmadi.',
       noEnglish: 'Ushbu hujjat uchun inglizcha xulosa yaratilmadi.',
+    },
+  },
+  admin: {
+    title: 'Admin panel',
+    subtitle: "Ro'yxatdan o'tgan foydalanuvchilar: {count}",
+    loading: 'Foydalanuvchilar yuklanmoqda…',
+    loadError: "Foydalanuvchilar ro'yxatini yuklab bo'lmadi.",
+    columns: {
+      user: 'Foydalanuvchi',
+      joined: "Ro'yxatdan o'tgan sana",
+      documents: 'Hujjatlar',
+      done: 'Qayta ishlangan',
+      errors: 'Xatolar',
+      role: 'Rol',
+      admin: 'Admin',
+      member: "A'zo",
     },
   },
 } satisfies Record<string, unknown>

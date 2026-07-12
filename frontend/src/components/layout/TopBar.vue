@@ -87,6 +87,9 @@ async function onSignOut() {
           <Button v-if="showWorkspaceLink" as-child>
             <RouterLink to="/app">{{ t('nav.openWorkspace') }}</RouterLink>
           </Button>
+          <Button v-if="authStore.user?.is_admin" variant="ghost" as-child>
+            <RouterLink to="/admin">{{ t('nav.admin') }}</RouterLink>
+          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger as-child>
               <Button variant="outline" size="icon" class="rounded-full">

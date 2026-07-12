@@ -1,6 +1,7 @@
 export default {
   nav: {
     openWorkspace: 'Открыть рабочее пространство',
+    admin: 'Админ-панель',
     signIn: 'Войти',
     signUp: 'Зарегистрироваться',
     signOut: 'Выйти',
@@ -109,6 +110,22 @@ export default {
       englishTab: 'Английский',
       noOriginal: 'Для этого документа резюме не создано.',
       noEnglish: 'Для этого документа резюме на английском не создано.',
+    },
+  },
+  admin: {
+    title: 'Админ-панель',
+    subtitle: 'Зарегистрировано пользователей: {count}',
+    loading: 'Загрузка пользователей…',
+    loadError: 'Не удалось загрузить список пользователей.',
+    columns: {
+      user: 'Пользователь',
+      joined: 'Дата регистрации',
+      documents: 'Документы',
+      done: 'Обработано',
+      errors: 'Ошибки',
+      role: 'Роль',
+      admin: 'Админ',
+      member: 'Участник',
     },
   },
 } satisfies Record<string, unknown>
