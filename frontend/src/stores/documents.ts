@@ -4,6 +4,10 @@ import type { DocumentDetail, DocumentSummary } from '@/lib/types'
 
 const ACTIVE_POLL_MS = 2000
 
+function isActive(doc: { status: string } | null | undefined): boolean {
+  return doc?.status === 'pending' || doc?.status === 'processing'
+}
+
 export const useDocumentsStore = defineStore('documents', {
   state: () => ({
     documents: [] as DocumentSummary[],
@@ -19,6 +23,7 @@ export const useDocumentsStore = defineStore('documents', {
       this.isLoadingList = true
       try {
         this.documents = await api.listDocuments()
+        this.maybeStartPolling()
       } catch (error) {
         console.error('Failed to load documents', error)
       } finally {
@@ -29,8 +34,9 @@ export const useDocumentsStore = defineStore('documents', {
     async selectDocument(id: string) {
       this.selectedId = id
       try {
-        this.selectedDetail = await api.getDocument(id)
-        this.maybeStartPolling()
+        const detail = await api.getDocument(id)
+        this.selectedDetail = detail
+        this.syncListEntry(detail)
       } catch (error) {
         console.error('Failed to load document', error)
         this.selectedDetail = null
@@ -38,7 +44,6 @@ export const useDocumentsStore = defineStore('documents', {
     },
 
     clearSelection() {
-      this.stopPolling()
       this.selectedId = null
       this.selectedDetail = null
     },
@@ -48,6 +53,7 @@ export const useDocumentsStore = defineStore('documents', {
       try {
         const created = await api.uploadDocument(file)
         this.documents.unshift(created)
+        this.maybeStartPolling()
         await this.selectDocument(created.id)
       } finally {
         this.isUploading = false
@@ -62,24 +68,34 @@ export const useDocumentsStore = defineStore('documents', {
       }
     },
 
+    syncListEntry(detail: DocumentDetail) {
+      const idx = this.documents.findIndex((doc) => doc.id === detail.id)
+      if (idx !== -1) this.documents[idx] = detail
+    },
+
+    // Polls the WHOLE list, not just whichever document happens to be
+    // selected - otherwise a document that isn't currently open keeps
+    // showing its stale "Queued"/"Analyzing" row forever once it actually
+    // finishes, since nothing was ever re-fetching it.
     maybeStartPolling() {
-      this.stopPolling()
-      if (!this.selectedId) return
-      if (this.selectedDetail?.status !== 'pending' && this.selectedDetail?.status !== 'processing') {
-        return
-      }
+      if (this.pollHandle) return
+      if (!this.documents.some(isActive)) return
+
       this.pollHandle = setInterval(async () => {
-        if (!this.selectedId) return
         try {
-          const detail = await api.getDocument(this.selectedId)
-          this.selectedDetail = detail
-          const idx = this.documents.findIndex((doc) => doc.id === detail.id)
-          if (idx !== -1) this.documents[idx] = detail
-          if (detail.status === 'done' || detail.status === 'error') {
-            this.stopPolling()
+          const fresh = await api.listDocuments()
+          this.documents = fresh
+
+          if (this.selectedId) {
+            const current = fresh.find((doc) => doc.id === this.selectedId)
+            if (current && (current.status !== this.selectedDetail?.status || !isActive(current))) {
+              this.selectedDetail = await api.getDocument(this.selectedId)
+            }
           }
+
+          if (!fresh.some(isActive)) this.stopPolling()
         } catch (error) {
-          console.error('Failed to poll document status', error)
+          console.error('Failed to poll document list', error)
           this.stopPolling()
         }
       }, ACTIVE_POLL_MS)

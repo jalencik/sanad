@@ -1,17 +1,23 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, toRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ExternalLink, FileX, LoaderCircle } from '@lucide/vue'
 import { Progress } from '@/components/ui/progress'
 import { useDocumentsStore } from '@/stores/documents'
 import { documentFileUrl } from '@/lib/api'
 import { formatDate, formatDocumentType, formatFileSize } from '@/lib/format'
+import { useAnimatedProgress } from '@/lib/useAnimatedProgress'
 import type { SupportedLocale } from '@/i18n'
 
 const store = useDocumentsStore()
 const { t, locale } = useI18n()
 
 const doc = computed(() => store.selectedDetail)
+const isActive = computed(() => doc.value?.status === 'pending' || doc.value?.status === 'processing')
+const displayedProgress = useAnimatedProgress(
+  toRef(() => doc.value?.progress_percent ?? 0),
+  toRef(() => isActive.value),
+)
 
 const fields = computed(() => {
   if (!doc.value) return []
@@ -35,10 +41,19 @@ const fields = computed(() => {
       {{ t('workspace.details.emptyState') }}
     </div>
 
-    <div v-else-if="doc.status === 'pending' || doc.status === 'processing'" class="flex flex-col items-center gap-3 py-10 text-center">
-      <LoaderCircle class="h-5 w-5 animate-spin text-warning" />
+    <div v-else-if="isActive" class="flex flex-col items-center gap-3 py-10 text-center">
+      <LoaderCircle class="h-5 w-5 animate-spin text-accent" />
       <p class="text-sm text-foreground">{{ t('workspace.details.analyzing') }}</p>
       <p class="text-xs text-muted-foreground">{{ t('workspace.details.analyzingHint') }}</p>
+      <div class="mt-1 w-full max-w-[220px]">
+        <div class="h-1.5 w-full overflow-hidden rounded-full bg-accent/15">
+          <div
+            class="h-full rounded-full bg-accent transition-[width] duration-300 ease-out"
+            :style="{ width: `${displayedProgress}%` }"
+          />
+        </div>
+        <p class="mt-1.5 text-xs font-medium tabular-nums text-accent">{{ Math.round(displayedProgress) }}%</p>
+      </div>
     </div>
 
     <div v-else-if="doc.status === 'error'" class="flex flex-col items-center gap-3 py-10 text-center">
