@@ -5,7 +5,7 @@ from app.core.security import hash_password
 from app.db.session import async_session_factory
 from app.models.document import Document, DocumentStatus
 from app.models.user import User
-from app.services.ai import DocumentAnalysis
+from app.services.ai import DocumentAnalysis, KeyField
 from app.services.ocr import OcrResult
 from app.services.pipeline import process_document
 
@@ -46,7 +46,7 @@ async def test_process_document_success():
         issue_date="2020-01-01",
         expiry_date="2030-01-01",
         detected_language="Uzbek",
-        key_fields={"full_name": "John Doe"},
+        key_fields=[KeyField(key="full_name", value="John Doe")],
         summary_original="Original summary.",
         summary_english="English summary.",
     )

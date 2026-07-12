@@ -20,9 +20,10 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://sanad:sanad@db:5432/sanad
       GEMINI_API_KEY: ${GEMINI_API_KEY:?GEMINI_API_KEY must be set in .env}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-flash-latest}
       UPLOAD_DIR: /app/uploads
       CORS_ORIGINS: '["http://localhost", "http://localhost:8080"]'
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-[]}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY must be set in .env}
       COOKIE_SECURE: "false"
     volumes:

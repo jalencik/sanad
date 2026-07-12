@@ -16,6 +16,11 @@ def _get_client() -> genai.Client:
     return _client
 
 
+class KeyField(BaseModel):
+    key: str
+    value: str
+
+
 class DocumentAnalysis(BaseModel):
     document_type: str = Field(
         description=(
@@ -32,8 +37,8 @@ class DocumentAnalysis(BaseModel):
     detected_language: str = Field(
         description="Primary language of the document, as an English word, e.g. Uzbek, Russian, English."
     )
-    key_fields: dict[str, str] = Field(
-        default_factory=dict,
+    key_fields: list[KeyField] = Field(
+        default_factory=list,
         description="Other notable extracted fields as flat key-value string pairs (e.g. full_name).",
     )
     summary_original: str = Field(

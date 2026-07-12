@@ -35,7 +35,7 @@ async def process_document(document_id: uuid.UUID) -> None:
             document.issue_date = analysis.issue_date
             document.expiry_date = analysis.expiry_date
             document.detected_language = analysis.detected_language
-            document.key_fields = analysis.key_fields
+            document.key_fields = {field.key: field.value for field in analysis.key_fields}
             document.summary_original = analysis.summary_original
             document.summary_english = analysis.summary_english
             document.status = DocumentStatus.DONE
