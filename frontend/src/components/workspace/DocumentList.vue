@@ -32,7 +32,19 @@ function select(id: string) {
     </div>
 
     <ScrollArea class="flex-1 border-t border-border">
-      <div v-if="filtered.length === 0" class="px-4 py-10 text-center text-sm text-muted-foreground">
+      <!-- Skeleton rows while the first fetch is in flight, so the list never
+           flashes "No documents yet" at someone who actually has documents. -->
+      <div v-if="store.isLoadingList && store.documents.length === 0" aria-hidden="true">
+        <div v-for="n in 3" :key="n" class="flex w-full animate-pulse items-start gap-3 border-b border-border px-4 py-3">
+          <span class="mt-0.5 h-8 w-8 shrink-0 rounded-md bg-muted" />
+          <span class="min-w-0 flex-1 space-y-2 py-0.5">
+            <span class="block h-3.5 w-3/5 rounded bg-muted" />
+            <span class="block h-3 w-2/5 rounded bg-muted" />
+          </span>
+        </div>
+      </div>
+
+      <div v-else-if="filtered.length === 0" class="px-4 py-10 text-center text-sm text-muted-foreground">
         {{ store.documents.length === 0 ? t('workspace.list.empty') : t('workspace.list.noMatches') }}
       </div>
 

@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -76,9 +76,18 @@ async def upload_document(
 async def list_documents(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
 ) -> list[Document]:
+    # Paginated so the sidebar (and its 2-second poll while documents are
+    # processing) never drags the user's full history over the wire - only
+    # the most recent page.
     result = await db.execute(
-        select(Document).where(Document.user_id == current_user.id).order_by(Document.created_at.desc())
+        select(Document)
+        .where(Document.user_id == current_user.id)
+        .order_by(Document.created_at.desc())
+        .offset(offset)
+        .limit(limit)
     )
     return list(result.scalars().all())
 

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import uuid
 
@@ -15,6 +16,12 @@ PROGRESS_OCR_DONE = 55
 PROGRESS_ANALYSIS_DONE = 90
 PROGRESS_COMPLETE = 100
 
+# OCR is CPU-heavy (Tesseract + 300-DPI page rasterization). Running it via
+# to_thread keeps the event loop free, but unbounded parallel Tesseract on a
+# small host (Render free tier: fractional CPU, 512MB) would thrash or OOM -
+# cap concurrent jobs; further uploads simply wait their turn in "queued".
+_ocr_slots = asyncio.Semaphore(2)
+
 
 async def process_document(document_id: uuid.UUID) -> None:
     async with async_session_factory() as session:
@@ -28,7 +35,14 @@ async def process_document(document_id: uuid.UUID) -> None:
 
         try:
             path = storage.resolve_path(document.stored_filename)
-            ocr_result = ocr.run_ocr(path, document.mime_type)
+
+            # Both OCR and the Gemini call are synchronous, seconds-long
+            # blocking calls. Awaiting them directly on the event loop froze
+            # the WHOLE API (polls, logins, everything) for the duration of
+            # every document - to_thread moves them off the loop so the
+            # server stays responsive while documents process.
+            async with _ocr_slots:
+                ocr_result = await asyncio.to_thread(ocr.run_ocr, path, document.mime_type)
 
             document.ocr_text = ocr_result.text
             document.ocr_confidence = ocr_result.confidence
@@ -38,7 +52,7 @@ async def process_document(document_id: uuid.UUID) -> None:
             if not ocr_result.text.strip():
                 raise ValueError("No text could be extracted from this document")
 
-            analysis = ai.analyze_document_text(ocr_result.text)
+            analysis = await asyncio.to_thread(ai.analyze_document_text, ocr_result.text)
 
             document.document_type = analysis.document_type
             document.document_number = analysis.document_number

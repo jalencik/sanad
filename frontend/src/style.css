@@ -1,5 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&family=Inter:wght@400;500;600;700&display=swap');
-
+/* Fonts are loaded via <link> in index.html (with preconnect) rather than a
+   CSS @import - see the comment there. */
 @import "tailwindcss";
 
 @import "tw-animate-css";

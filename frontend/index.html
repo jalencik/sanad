@@ -9,6 +9,15 @@
       name="description"
       content="Upload official documents in any language and get structured details plus an AI-generated summary in seconds."
     />
+    <!-- Fonts load from the HTML head instead of a CSS @import: an @import
+         only starts downloading after the bundled CSS itself arrives, adding
+         a full serial round-trip before any text can render. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&family=Inter:wght@400;500;600;700&display=swap"
+    />
   </head>
   <body>
     <div id="app"></div>

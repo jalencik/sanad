@@ -1,0 +1,29 @@
+# Keep the Render free-tier services awake during waking hours.
+#
+# Render's free tier spins a service down after 15 minutes without traffic,
+# and the next visitor then waits ~50 seconds for a cold start - by far the
+# slowest thing a user ever experiences with this app. Pinging the frontend's
+# /api/health route warms BOTH services with one request (nginx proxies it
+# through to the backend).
+#
+# Why not 24/7: the free tier includes 750 instance-hours per month POOLED
+# across all services. Two Docker services awake around the clock would need
+# ~1,440 hours and get the workspace suspended mid-month. This schedule keeps
+# things warm 03:00-13:59 UTC (08:00-18:59 Tashkent) - roughly 680 hours a
+# month for both services, leaving headroom for evening use, at the cost of
+# one cold start for the first visitor outside those hours.
+name: keep-alive
+
+on:
+  schedule:
+    - cron: "*/10 3-13 * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping app (frontend -> backend via /api proxy)
+        run: |
+          curl -sS --max-time 90 -o /dev/null -w "frontend+backend: %{http_code} in %{time_total}s\n" \
+            https://frontend-bnun.onrender.com/api/health || true
