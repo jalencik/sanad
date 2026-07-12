@@ -14,7 +14,6 @@ export default {
     heroSubtitle:
       "Sanad har qanday tilda berilgan pasport, guvohnoma, shartnoma va boshqa hujjatlarni skanerdan o'qib, tuzilgan ma'lumotlar va oddiy tilda qisqacha mazmunini bir necha soniyada taqdim etadi.",
     ctaOpenWorkspace: 'Ish maydonini ochish',
-    ctaViewSource: "Manba kodini ko'rish",
     mockWorkspaceLabel: 'Sanad ish maydoni',
     mockDropHint: 'Hujjatni shu yerga tashlang',
     pipeline: {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
-import { ArrowRight, ExternalLink, FileText, Languages, ScanText, Sparkles } from '@lucide/vue'
+import { ArrowRight, FileText, Languages, ScanText, Sparkles } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import TopBar from '@/components/layout/TopBar.vue'
 
@@ -30,12 +30,6 @@ const languages = ['Uzbek', 'Russian', 'English', 'Karakalpak', 'Kazakh', 'Tajik
                 {{ t('landing.ctaOpenWorkspace') }}
                 <ArrowRight class="h-4 w-4" />
               </RouterLink>
-            </Button>
-            <Button size="lg" variant="outline" as-child>
-              <a href="https://github.com/jalencik/sanad" target="_blank" rel="noopener">
-                {{ t('landing.ctaViewSource') }}
-                <ExternalLink class="h-4 w-4" />
-              </a>
             </Button>
           </div>
         </div>

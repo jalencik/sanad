@@ -14,7 +14,6 @@ export default {
     heroSubtitle:
       'Sanad reads scanned passports, certificates, contracts, and deeds in whatever language they were issued in — then hands back structured details and a plain-language summary, in seconds.',
     ctaOpenWorkspace: 'Open the workspace',
-    ctaViewSource: 'View source',
     mockWorkspaceLabel: 'Sanad workspace',
     mockDropHint: 'Drop a document',
     pipeline: {
