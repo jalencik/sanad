@@ -2,6 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -13,7 +14,19 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://sanad:sanad@localhost:5432/sanad"
 
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-flash-latest"
+
+    @field_validator("database_url")
+    @classmethod
+    def _use_async_driver(cls, value: str) -> str:
+        # Managed Postgres providers (Render, Heroku, Railway, Supabase, ...)
+        # hand out a bare postgresql:// URL, which resolves to the sync
+        # psycopg2 driver - incompatible with the async engine this app uses
+        # everywhere. Normalize it here so deploying anywhere doesn't depend
+        # on remembering to hand-edit the connection string.
+        if value.startswith("postgresql://"):
+            return value.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return value
 
     upload_dir: Path = BASE_DIR / "uploads"
     max_upload_size_mb: int = 25
