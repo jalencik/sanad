@@ -42,7 +42,7 @@ function select(id: string) {
         v-for="doc in filtered"
         :key="doc.id"
         type="button"
-        class="flex w-full items-start gap-3 border-b border-border px-4 py-3 text-left transition-colors hover:bg-muted"
+        class="relative flex w-full items-start gap-3 overflow-hidden border-b border-border px-4 py-3 text-left transition-colors hover:bg-muted"
         :class="{ 'bg-muted': doc.id === store.selectedId }"
         @click="select(doc.id)"
       >
@@ -57,11 +57,22 @@ function select(id: string) {
             <span class="truncate text-xs text-muted-foreground">
               {{ formatDocumentType(doc.document_type, t('workspace.details.unclassified')) }}
             </span>
-            <StatusBadge :status="doc.status" />
+            <StatusBadge :status="doc.status" :progress-percent="doc.progress_percent" />
           </span>
           <span class="mt-0.5 block text-xs text-muted-foreground">
             {{ formatDate(doc.created_at, locale as SupportedLocale) }}
           </span>
+        </span>
+
+        <span
+          v-if="doc.status === 'processing'"
+          class="absolute inset-x-0 bottom-0 h-0.5 bg-warning/15"
+          aria-hidden="true"
+        >
+          <span
+            class="block h-full bg-warning transition-[width] duration-500 ease-out"
+            :style="{ width: `${doc.progress_percent}%` }"
+          />
         </span>
       </button>
     </ScrollArea>

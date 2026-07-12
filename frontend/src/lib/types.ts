@@ -6,6 +6,7 @@ export interface DocumentSummary {
   mime_type: string
   file_size: number
   status: DocumentStatus
+  progress_percent: number
   document_type: string | null
   document_number: string | null
   detected_language: string | null

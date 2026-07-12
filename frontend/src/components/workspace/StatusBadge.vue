@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { CircleCheck, CircleX, Clock, LoaderCircle } from '@lucide/vue'
 import type { DocumentStatus } from '@/lib/types'
 
-const props = defineProps<{ status: DocumentStatus }>()
+const props = defineProps<{ status: DocumentStatus; progressPercent?: number }>()
 const { t } = useI18n()
 
 const config = computed(() => {
@@ -22,8 +22,11 @@ const config = computed(() => {
 </script>
 
 <template>
-  <span class="inline-flex items-center gap-1 text-xs font-medium" :class="config.class">
+  <span class="inline-flex items-center gap-1 text-xs font-medium tabular-nums" :class="config.class">
     <component :is="config.icon" class="h-3 w-3" :class="{ 'animate-spin': config.spin }" />
     {{ config.label }}
+    <span v-if="status === 'processing' && progressPercent !== undefined" class="text-[11px] opacity-80">
+      {{ progressPercent }}%
+    </span>
   </span>
 </template>

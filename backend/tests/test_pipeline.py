@@ -7,7 +7,7 @@ from app.models.document import Document, DocumentStatus
 from app.models.user import User
 from app.services.ai import DocumentAnalysis, KeyField
 from app.services.ocr import OcrResult
-from app.services.pipeline import process_document
+from app.services.pipeline import PROGRESS_COMPLETE, PROGRESS_OCR_DONE, process_document
 
 
 async def _create_test_user() -> uuid.UUID:
@@ -62,6 +62,7 @@ async def test_process_document_success():
         assert refreshed.status == DocumentStatus.DONE
         assert refreshed.document_number == "AB1234567"
         assert refreshed.summary_english == "English summary."
+        assert refreshed.progress_percent == PROGRESS_COMPLETE
 
 
 async def test_process_document_marks_error_on_empty_ocr():
@@ -87,3 +88,4 @@ async def test_process_document_marks_error_on_empty_ocr():
         refreshed = await session.get(Document, document_id)
         assert refreshed.status == DocumentStatus.ERROR
         assert refreshed.error_message
+        assert refreshed.progress_percent == PROGRESS_OCR_DONE

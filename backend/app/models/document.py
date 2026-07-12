@@ -29,6 +29,9 @@ class Document(Base):
         Enum(DocumentStatus, name="document_status", values_callable=lambda e: [m.value for m in e]),
         default=DocumentStatus.PENDING,
     )
+    # Reflects real pipeline stages (queued/OCR done/analysis done/stored),
+    # not a time-based animation - see PROGRESS_* constants in pipeline.py.
+    progress_percent: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     ocr_text: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -14,6 +14,7 @@ class DocumentSummary(BaseModel):
     mime_type: str
     file_size: int
     status: DocumentStatus
+    progress_percent: int
     document_type: str | None
     document_number: str | None
     detected_language: str | None
