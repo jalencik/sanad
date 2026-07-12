@@ -55,6 +55,21 @@ async def test_login_with_wrong_password_fails(anon_client):
     assert response.status_code == 401
 
 
+async def test_signup_rate_limited_after_repeated_attempts(anon_client):
+    for i in range(5):
+        response = await anon_client.post(
+            "/api/auth/signup",
+            json={"email": f"limit{i}@example.com", "password": "correct-horse-battery", "full_name": "User"},
+        )
+        assert response.status_code == 201
+
+    response = await anon_client.post(
+        "/api/auth/signup",
+        json={"email": "limit-extra@example.com", "password": "correct-horse-battery", "full_name": "User"},
+    )
+    assert response.status_code == 429
+
+
 async def test_me_requires_authentication(anon_client):
     response = await anon_client.get("/api/auth/me")
     assert response.status_code == 401

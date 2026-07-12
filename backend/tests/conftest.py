@@ -11,10 +11,17 @@ from httpx import ASGITransport, AsyncClient  # noqa: E402
 from app.db.base import Base  # noqa: E402
 from app.db.session import engine  # noqa: E402
 from app.main import app  # noqa: E402
+from app.services import rate_limit  # noqa: E402
 
 
 @pytest_asyncio.fixture(autouse=True)
 async def _prepare_database():
+    # The rate limiter's attempt counts live in a module-level dict, not the
+    # DB, so they survive across tests unless cleared here too - otherwise
+    # tests sharing a rate-limit key (e.g. the ASGI test client has no real
+    # peer IP, so every signup call collides on "signup:unknown") trip each
+    # other's limits depending on run order.
+    rate_limit.reset()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield

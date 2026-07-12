@@ -13,9 +13,17 @@ from app.models.user import User
 from app.schemas.document import DocumentDetail, DocumentSummary
 from app.services import storage
 from app.services.pipeline import process_document
+from app.services.rate_limit import check_rate_limit
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 settings = get_settings()
+
+# Each upload triggers a real OCR pass plus a billed/quota-metered Gemini API
+# call, so this route needs its own (looser than login's) cap - protects the
+# free-tier quota and server CPU from a runaway client without blocking
+# normal interactive use.
+UPLOAD_MAX_ATTEMPTS = 20
+UPLOAD_WINDOW_SECONDS = 300.0
 
 
 async def _get_owned_document(document_id: uuid.UUID, user: User, db: AsyncSession) -> Document:
@@ -32,6 +40,13 @@ async def upload_document(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> Document:
+    check_rate_limit(
+        f"upload:{current_user.id}",
+        max_attempts=UPLOAD_MAX_ATTEMPTS,
+        window_seconds=UPLOAD_WINDOW_SECONDS,
+        message="Too many uploads. Please wait a few minutes and try again.",
+    )
+
     if file.content_type not in settings.allowed_mime_types:
         raise HTTPException(415, f"Unsupported file type: {file.content_type}")
 

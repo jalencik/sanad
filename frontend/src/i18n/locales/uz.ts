@@ -40,6 +40,8 @@ export default {
     passwordLabel: 'Parol',
     fullNameLabel: "To'liq ism",
     fullNamePlaceholder: 'Jaloliddin Musayev',
+    orDivider: 'yoki',
+    continueWithGoogle: 'Google orqali davom etish',
     signIn: {
       title: 'Sanad tizimiga kirish',
       subtitle: "Xush kelibsiz. Davom etish uchun ma'lumotlaringizni kiriting.",

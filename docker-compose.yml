@@ -24,6 +24,9 @@ services:
       UPLOAD_DIR: /app/uploads
       CORS_ORIGINS: '["http://localhost", "http://localhost:8080"]'
       ADMIN_EMAILS: ${ADMIN_EMAILS:-[]}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY must be set in .env}
       COOKIE_SECURE: "false"
     volumes:

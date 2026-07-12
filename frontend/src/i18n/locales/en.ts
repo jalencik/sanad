@@ -40,6 +40,8 @@ export default {
     passwordLabel: 'Password',
     fullNameLabel: 'Full name',
     fullNamePlaceholder: 'Jaloliddin Musaev',
+    orDivider: 'or',
+    continueWithGoogle: 'Continue with Google',
     signIn: {
       title: 'Sign in to Sanad',
       subtitle: 'Welcome back. Enter your credentials to continue.',

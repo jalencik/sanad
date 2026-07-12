@@ -6,6 +6,7 @@ import { FileText } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import GoogleIcon from '@/components/GoogleIcon.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const { t } = useI18n()
@@ -31,6 +32,10 @@ async function onSubmit() {
   } finally {
     isSubmitting.value = false
   }
+}
+
+function onGoogleSignIn() {
+  window.location.href = '/api/auth/google/login'
 }
 </script>
 
@@ -63,6 +68,17 @@ async function onSubmit() {
           {{ isSubmitting ? t('auth.signIn.submitting') : t('auth.signIn.submit') }}
         </Button>
       </form>
+
+      <div class="my-4 flex items-center gap-3">
+        <div class="h-px flex-1 bg-border" />
+        <span class="text-xs text-muted-foreground">{{ t('auth.orDivider') }}</span>
+        <div class="h-px flex-1 bg-border" />
+      </div>
+
+      <Button type="button" variant="outline" class="w-full" @click="onGoogleSignIn">
+        <GoogleIcon />
+        {{ t('auth.continueWithGoogle') }}
+      </Button>
 
       <p class="mt-5 text-center text-sm text-muted-foreground">
         {{ t('auth.signIn.noAccount') }}

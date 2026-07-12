@@ -42,3 +42,19 @@ async def test_list_and_get_document(client):
 async def test_get_missing_document_returns_404(client):
     response = await client.get("/api/documents/00000000-0000-0000-0000-000000000000")
     assert response.status_code == 404
+
+
+async def test_upload_rate_limited_after_repeated_attempts(client):
+    with patch("app.api.documents.process_document", new=AsyncMock()):
+        for _ in range(20):
+            response = await client.post(
+                "/api/documents",
+                files={"file": ("scan.png", io.BytesIO(b"\x89PNG\r\n\x1a\n"), "image/png")},
+            )
+            assert response.status_code == 201
+
+        response = await client.post(
+            "/api/documents",
+            files={"file": ("scan.png", io.BytesIO(b"\x89PNG\r\n\x1a\n"), "image/png")},
+        )
+    assert response.status_code == 429

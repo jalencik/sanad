@@ -40,6 +40,8 @@ export default {
     passwordLabel: 'Пароль',
     fullNameLabel: 'Полное имя',
     fullNamePlaceholder: 'Jaloliddin Musaev',
+    orDivider: 'или',
+    continueWithGoogle: 'Продолжить с Google',
     signIn: {
       title: 'Вход в Sanad',
       subtitle: 'С возвращением. Введите данные для входа.',

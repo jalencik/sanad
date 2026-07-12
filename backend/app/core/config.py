@@ -38,6 +38,17 @@ class Settings(BaseSettings):
     # entirely by env var - no manual DB edits needed to promote an account.
     admin_emails: list[str] = []
 
+    # "Continue with Google" is disabled (Google endpoints return a clear 503)
+    # until all three of these are set - create the OAuth client yourself in
+    # Google Cloud Console, this app never touches your Google account.
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    google_redirect_uri: str = ""
+
+    @property
+    def google_oauth_configured(self) -> bool:
+        return bool(self.google_client_id and self.google_client_secret and self.google_redirect_uri)
+
     jwt_secret_key: str = "dev-only-insecure-secret-change-me"
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 7
