@@ -3,17 +3,18 @@ from google.genai import types
 from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
+from app.services.gemini_pool import GeminiKeyPool
 
 settings = get_settings()
 
-_client: genai.Client | None = None
+_pool: GeminiKeyPool | None = None
 
 
-def _get_client() -> genai.Client:
-    global _client
-    if _client is None:
-        _client = genai.Client(api_key=settings.gemini_api_key)
-    return _client
+def _get_pool() -> GeminiKeyPool:
+    global _pool
+    if _pool is None:
+        _pool = GeminiKeyPool(settings.gemini_keys)
+    return _pool
 
 
 class KeyField(BaseModel):
@@ -56,8 +57,6 @@ class DocumentAnalysis(BaseModel):
 
 
 def analyze_document_text(ocr_text: str) -> DocumentAnalysis:
-    client = _get_client()
-
     prompt = (
         "The following text was extracted via OCR from an official document and may "
         "contain recognition errors. Analyze it and return your best-effort structured "
@@ -65,14 +64,17 @@ def analyze_document_text(ocr_text: str) -> DocumentAnalysis:
         f"--- OCR TEXT START ---\n{ocr_text}\n--- OCR TEXT END ---"
     )
 
-    response = client.models.generate_content(
-        model=settings.gemini_model,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=DocumentAnalysis,
-        ),
-    )
+    def _call(client: genai.Client):
+        return client.models.generate_content(
+            model=settings.gemini_model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=DocumentAnalysis,
+            ),
+        )
+
+    response = _get_pool().call(_call)
 
     if response.parsed is None:
         raise RuntimeError("Gemini did not return a structured response")

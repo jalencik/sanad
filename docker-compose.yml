@@ -19,7 +19,7 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql+asyncpg://sanad:sanad@db:5432/sanad
-      GEMINI_API_KEY: ${GEMINI_API_KEY:?GEMINI_API_KEY must be set in .env}
+      GEMINI_API_KEYS: ${GEMINI_API_KEYS:?GEMINI_API_KEYS must be set in .env - see .env.example}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-flash-latest}
       UPLOAD_DIR: /app/uploads
       CORS_ORIGINS: '["http://localhost", "http://localhost:8080"]'

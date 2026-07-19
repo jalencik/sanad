@@ -13,8 +13,20 @@ class Settings(BaseSettings):
     environment: str = "development"
     database_url: str = "postgresql+asyncpg://sanad:sanad@localhost:5432/sanad"
 
+    # Single-key config, kept for back-compat with existing deployments/tests.
     gemini_api_key: str = ""
+    # Preferred: up to 5 free-tier keys, comma-separated, rotated on failure -
+    # see app/services/gemini_pool.py. Falls back to gemini_api_key above if unset.
+    gemini_api_keys: str = ""
     gemini_model: str = "gemini-flash-latest"
+
+    @property
+    def gemini_keys(self) -> list[str]:
+        if self.gemini_api_keys.strip():
+            return [key.strip() for key in self.gemini_api_keys.split(",") if key.strip()]
+        if self.gemini_api_key.strip():
+            return [self.gemini_api_key.strip()]
+        return []
 
     @field_validator("database_url")
     @classmethod
