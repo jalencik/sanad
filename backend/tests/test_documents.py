@@ -1,5 +1,13 @@
 import io
+import uuid
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
+
+from sqlalchemy import select
+
+from app.db.session import async_session_factory
+from app.models.document import Document, DocumentStatus
+from app.models.user import User
 
 
 async def test_reject_unsupported_file_type(client):
@@ -42,6 +50,63 @@ async def test_list_and_get_document(client):
 async def test_get_missing_document_returns_404(client):
     response = await client.get("/api/documents/00000000-0000-0000-0000-000000000000")
     assert response.status_code == 404
+
+
+async def test_processing_document_has_no_eta_without_history(client):
+    with patch("app.api.documents.process_document", new=AsyncMock()):
+        upload = await client.post(
+            "/api/documents",
+            files={"file": ("scan.png", io.BytesIO(b"\x89PNG\r\n\x1a\n"), "image/png")},
+        )
+    document_id = upload.json()["id"]
+
+    async with async_session_factory() as session:
+        document = await session.get(Document, uuid.UUID(document_id))
+        document.status = DocumentStatus.PROCESSING
+        document.processing_started_at = datetime.now(UTC)
+        await session.commit()
+
+    detail = await client.get(f"/api/documents/{document_id}")
+    assert detail.json()["estimated_completion_at"] is None
+
+
+async def test_processing_document_gets_eta_once_history_exists(client):
+    async with async_session_factory() as session:
+        user = (await session.execute(select(User).where(User.email == "test.user@example.com"))).scalar_one()
+        now = datetime.now(UTC)
+        session.add(
+            Document(
+                user_id=user.id,
+                original_filename="prior.png",
+                stored_filename=f"{uuid.uuid4()}.png",
+                mime_type="image/png",
+                file_size=10,
+                status=DocumentStatus.DONE,
+                processing_started_at=now - timedelta(seconds=15),
+                updated_at=now,
+            )
+        )
+        await session.commit()
+
+    with patch("app.api.documents.process_document", new=AsyncMock()):
+        upload = await client.post(
+            "/api/documents",
+            files={"file": ("scan.png", io.BytesIO(b"\x89PNG\r\n\x1a\n"), "image/png")},
+        )
+    document_id = upload.json()["id"]
+
+    async with async_session_factory() as session:
+        document = await session.get(Document, uuid.UUID(document_id))
+        document.status = DocumentStatus.PROCESSING
+        document.processing_started_at = datetime.now(UTC)
+        await session.commit()
+
+    detail = await client.get(f"/api/documents/{document_id}")
+    assert detail.json()["estimated_completion_at"] is not None
+
+    listing = await client.get("/api/documents")
+    listed = next(doc for doc in listing.json() if doc["id"] == document_id)
+    assert listed["estimated_completion_at"] is not None
 
 
 async def test_upload_rate_limited_after_repeated_attempts(client):

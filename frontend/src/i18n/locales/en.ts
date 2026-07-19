@@ -90,6 +90,8 @@ export default {
       emptyState: 'Select a document on the left to see its details.',
       analyzing: 'Reading & analyzing this document…',
       analyzingHint: 'OCR and AI extraction usually take a few seconds per page.',
+      timeRemaining: '~{time} remaining',
+      almostDone: 'Almost done…',
       errorTitle: "Couldn't process this document",
       viewOriginal: 'View original',
       ocrConfidence: 'OCR confidence',

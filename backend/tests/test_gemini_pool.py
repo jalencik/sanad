@@ -69,6 +69,17 @@ def test_a_failed_key_is_skipped_until_its_cooldown_elapses():
     assert pool.call(lambda client: client) == "key-a"
 
 
+def test_consecutive_calls_use_consecutive_keys_even_without_failures():
+    # This is the "spread the load across all 5 keys" guarantee - every
+    # document's Gemini call should move to the next key in line, not
+    # hammer key #1 until it happens to fail.
+    pool = _pool(["key-a", "key-b", "key-c", "key-d", "key-e"])
+
+    used = [pool.call(lambda client: client) for _ in range(7)]
+
+    assert used == ["key-a", "key-b", "key-c", "key-d", "key-e", "key-a", "key-b"]
+
+
 def test_empty_key_list_is_rejected():
     from app.services.gemini_pool import GeminiKeyPool
 

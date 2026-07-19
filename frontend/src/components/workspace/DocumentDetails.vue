@@ -5,8 +5,8 @@ import { ExternalLink, FileX, LoaderCircle } from '@lucide/vue'
 import { Progress } from '@/components/ui/progress'
 import { useDocumentsStore } from '@/stores/documents'
 import { documentFileUrl } from '@/lib/api'
-import { formatDate, formatDocumentType, formatFileSize } from '@/lib/format'
-import { useAnimatedProgress } from '@/lib/useAnimatedProgress'
+import { formatCountdown, formatDate, formatDocumentType, formatFileSize } from '@/lib/format'
+import { useProcessingEta } from '@/lib/useProcessingEta'
 import type { SupportedLocale } from '@/i18n'
 
 const store = useDocumentsStore()
@@ -14,10 +14,12 @@ const { t, locale } = useI18n()
 
 const doc = computed(() => store.selectedDetail)
 const isActive = computed(() => doc.value?.status === 'pending' || doc.value?.status === 'processing')
-const displayedProgress = useAnimatedProgress(
-  toRef(() => doc.value?.progress_percent ?? 0),
-  toRef(() => isActive.value),
-)
+const { displayedProgress, secondsRemaining } = useProcessingEta({
+  progressPercent: toRef(() => doc.value?.progress_percent ?? 0),
+  active: toRef(() => isActive.value),
+  processingStartedAt: toRef(() => doc.value?.processing_started_at),
+  estimatedCompletionAt: toRef(() => doc.value?.estimated_completion_at),
+})
 
 const fields = computed(() => {
   if (!doc.value) return []
@@ -53,6 +55,13 @@ const fields = computed(() => {
           />
         </div>
         <p class="mt-1.5 text-xs font-medium tabular-nums text-accent">{{ Math.round(displayedProgress) }}%</p>
+        <p v-if="secondsRemaining !== null" class="mt-0.5 text-xs tabular-nums text-muted-foreground">
+          {{
+            secondsRemaining > 0
+              ? t('workspace.details.timeRemaining', { time: formatCountdown(secondsRemaining) })
+              : t('workspace.details.almostDone')
+          }}
+        </p>
       </div>
     </div>
 

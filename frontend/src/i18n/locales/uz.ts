@@ -90,6 +90,8 @@ export default {
       emptyState: 'Tafsilotlarni ko‘rish uchun chapdan hujjatni tanlang.',
       analyzing: "Hujjat o'qilib, tahlil qilinmoqda…",
       analyzingHint: 'OCR va AI tahlili odatda har bir sahifa uchun bir necha soniya vaqt oladi.',
+      timeRemaining: '~{time} qoldi',
+      almostDone: 'Tugashiga oz qoldi…',
       errorTitle: "Ushbu hujjatni qayta ishlab bo'lmadi",
       viewOriginal: 'Asl nusxasini ko‘rish',
       ocrConfidence: 'OCR aniqligi',

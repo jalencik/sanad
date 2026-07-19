@@ -11,6 +11,8 @@ export interface DocumentSummary {
   document_number: string | null
   detected_language: string | null
   created_at: string
+  processing_started_at: string | null
+  estimated_completion_at: string | null
 }
 
 export interface DocumentDetail extends DocumentSummary {

@@ -8,10 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.core.config import get_settings
 from app.db.session import get_db
-from app.models.document import Document
+from app.models.document import Document, DocumentStatus
 from app.models.user import User
 from app.schemas.document import DocumentDetail, DocumentSummary
 from app.services import storage
+from app.services.eta import estimate_completion, typical_processing_seconds
 from app.services.pipeline import process_document
 from app.services.rate_limit import check_rate_limit
 
@@ -31,6 +32,17 @@ async def _get_owned_document(document_id: uuid.UUID, user: User, db: AsyncSessi
     if document is None or document.user_id != user.id:
         raise HTTPException(404, "Document not found")
     return document
+
+
+async def _attach_eta(documents: list[Document], db: AsyncSession) -> list[Document]:
+    # One history lookup covers every processing document in this response -
+    # no need to repeat it per row.
+    if not any(doc.status == DocumentStatus.PROCESSING for doc in documents):
+        return documents
+    typical_seconds = await typical_processing_seconds(db)
+    for document in documents:
+        document.estimated_completion_at = estimate_completion(document, typical_seconds)
+    return documents
 
 
 @router.post("", response_model=DocumentDetail, status_code=201)
@@ -89,7 +101,7 @@ async def list_documents(
         .offset(offset)
         .limit(limit)
     )
-    return list(result.scalars().all())
+    return await _attach_eta(list(result.scalars().all()), db)
 
 
 @router.get("/{document_id}", response_model=DocumentDetail)
@@ -98,7 +110,9 @@ async def get_document(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> Document:
-    return await _get_owned_document(document_id, current_user, db)
+    document = await _get_owned_document(document_id, current_user, db)
+    await _attach_eta([document], db)
+    return document
 
 
 @router.get("/{document_id}/file")

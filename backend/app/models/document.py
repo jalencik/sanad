@@ -32,6 +32,10 @@ class Document(Base):
     # Reflects real pipeline stages (queued/OCR done/analysis done/stored),
     # not a time-based animation - see PROGRESS_* constants in pipeline.py.
     progress_percent: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # Set once when processing actually begins (including on resume after a
+    # restart) - lets the ETA estimate answer "how long has this really been
+    # running", independent of progress_percent's coarse checkpoints.
+    processing_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     ocr_text: Mapped[str | None] = mapped_column(Text, nullable=True)

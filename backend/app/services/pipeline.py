@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import uuid
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -53,6 +54,7 @@ async def process_document(document_id: uuid.UUID) -> None:
 
         document.status = DocumentStatus.PROCESSING
         document.progress_percent = PROGRESS_QUEUED
+        document.processing_started_at = datetime.now(UTC)
         await session.commit()
 
         try:

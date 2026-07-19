@@ -88,8 +88,21 @@ export const useDocumentsStore = defineStore('documents', {
 
           if (this.selectedId) {
             const current = fresh.find((doc) => doc.id === this.selectedId)
-            if (current && (current.status !== this.selectedDetail?.status || !isActive(current))) {
-              this.selectedDetail = await api.getDocument(this.selectedId)
+            if (current) {
+              if (current.status !== this.selectedDetail?.status || !isActive(current)) {
+                this.selectedDetail = await api.getDocument(this.selectedId)
+              } else if (this.selectedDetail) {
+                // Same status, still processing - the list poll we just did
+                // already carries the fields that change during processing
+                // (progress, ETA), so sync those in instead of firing a
+                // second request every 2s just to keep them fresh.
+                this.selectedDetail = {
+                  ...this.selectedDetail,
+                  progress_percent: current.progress_percent,
+                  processing_started_at: current.processing_started_at,
+                  estimated_completion_at: current.estimated_completion_at,
+                }
+              }
             }
           }
 

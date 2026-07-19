@@ -3,7 +3,7 @@ import { computed, toRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { FileText } from '@lucide/vue'
 import StatusBadge from './StatusBadge.vue'
-import { useAnimatedProgress } from '@/lib/useAnimatedProgress'
+import { useProcessingEta } from '@/lib/useProcessingEta'
 import { formatDate, formatDocumentType } from '@/lib/format'
 import type { DocumentSummary } from '@/lib/types'
 import type { SupportedLocale } from '@/i18n'
@@ -14,10 +14,12 @@ defineEmits<{ select: [] }>()
 const { t, locale } = useI18n()
 
 const isActive = computed(() => props.doc.status === 'pending' || props.doc.status === 'processing')
-const displayedProgress = useAnimatedProgress(
-  toRef(() => props.doc.progress_percent),
-  toRef(() => isActive.value),
-)
+const { displayedProgress } = useProcessingEta({
+  progressPercent: toRef(() => props.doc.progress_percent),
+  active: toRef(() => isActive.value),
+  processingStartedAt: toRef(() => props.doc.processing_started_at),
+  estimatedCompletionAt: toRef(() => props.doc.estimated_completion_at),
+})
 </script>
 
 <template>
