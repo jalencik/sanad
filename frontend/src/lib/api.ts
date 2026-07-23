@@ -4,6 +4,11 @@ import type { AdminUserSummary, AuthUser, DocumentDetail, DocumentSummary } from
 export const api = axios.create({
   baseURL: '/api',
   withCredentials: true,
+  // Axios waits forever by default. A sleeping Render free instance can take
+  // ~60s to wake (see index.html's loading screen), so this sits above that
+  // as a safety net for a genuinely stuck request, not a budget for a normal
+  // cold start.
+  timeout: 90_000,
 })
 
 let refreshPromise: Promise<void> | null = null
