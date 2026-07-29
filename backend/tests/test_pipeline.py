@@ -11,6 +11,7 @@ from app.services import pipeline
 from app.services.ai import DocumentAnalysis, KeyField
 from app.services.ocr import OcrResult
 from app.services.pipeline import (
+    CANCELLED_MESSAGE,
     PROGRESS_COMPLETE,
     PROGRESS_OCR_DONE,
     process_document,
@@ -174,6 +175,54 @@ async def test_process_document_marks_error_on_timeout(monkeypatch):
         refreshed = await session.get(Document, document_id)
         assert refreshed.status == DocumentStatus.ERROR
         assert "too long" in refreshed.error_message.lower()
+
+
+async def test_request_cancel_returns_false_when_nothing_is_running():
+    assert pipeline.request_cancel(uuid.uuid4()) is False
+
+
+async def test_request_cancel_stops_a_running_task_and_marks_it_cancelled():
+    user_id = await _create_test_user()
+
+    async with async_session_factory() as session:
+        document = Document(
+            user_id=user_id,
+            original_filename="scan.png",
+            stored_filename="scan.png",
+            mime_type="image/png",
+            file_size=10,
+        )
+        session.add(document)
+        await session.commit()
+        await session.refresh(document)
+        document_id = document.id
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    def _blocking_ocr(*args, **kwargs):
+        # Runs on a real OS thread via to_thread - a plain blocking wait
+        # here is the honest equivalent of a stuck Tesseract call, and lets
+        # this test control exactly when it's "still running" vs "finished"
+        # relative to the cancel request.
+        started.set()
+        while not release.is_set():
+            time.sleep(0.01)
+        return OcrResult(text="text", confidence=0.9)
+
+    with patch("app.services.pipeline.ocr.run_ocr", side_effect=_blocking_ocr):
+        task = pipeline._spawn(document_id)
+        await asyncio.wait_for(started.wait(), timeout=2)
+
+        assert pipeline.request_cancel(document_id) is True
+
+        release.set()
+        await asyncio.wait_for(task, timeout=2)
+
+    async with async_session_factory() as session:
+        refreshed = await session.get(Document, document_id)
+        assert refreshed.status == DocumentStatus.ERROR
+        assert refreshed.error_message == CANCELLED_MESSAGE
 
 
 async def test_recover_stuck_documents_requeues_only_pending_and_processing():

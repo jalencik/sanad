@@ -109,6 +109,59 @@ async def test_processing_document_gets_eta_once_history_exists(client):
     assert listed["estimated_completion_at"] is not None
 
 
+async def test_cancel_processing_document_marks_it_cancelled(client):
+    with patch("app.api.documents.process_document", new=AsyncMock()):
+        upload = await client.post(
+            "/api/documents",
+            files={"file": ("scan.png", io.BytesIO(b"\x89PNG\r\n\x1a\n"), "image/png")},
+        )
+    document_id = upload.json()["id"]
+
+    async with async_session_factory() as session:
+        document = await session.get(Document, uuid.UUID(document_id))
+        document.status = DocumentStatus.PROCESSING
+        document.processing_started_at = datetime.now(UTC)
+        await session.commit()
+
+    response = await client.post(f"/api/documents/{document_id}/cancel")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "error"
+    assert body["error_message"] == "Cancelled."
+
+    detail = await client.get(f"/api/documents/{document_id}")
+    assert detail.json()["status"] == "error"
+    assert detail.json()["error_message"] == "Cancelled."
+
+
+async def test_cancel_already_finished_document_is_rejected(client):
+    with patch("app.api.documents.process_document", new=AsyncMock()):
+        upload = await client.post(
+            "/api/documents",
+            files={"file": ("scan.png", io.BytesIO(b"\x89PNG\r\n\x1a\n"), "image/png")},
+        )
+    document_id = upload.json()["id"]
+
+    async with async_session_factory() as session:
+        document = await session.get(Document, uuid.UUID(document_id))
+        document.status = DocumentStatus.DONE
+        await session.commit()
+
+    response = await client.post(f"/api/documents/{document_id}/cancel")
+    assert response.status_code == 409
+
+    detail = await client.get(f"/api/documents/{document_id}")
+    assert detail.json()["status"] == "done"
+
+
+async def test_upload_rejects_content_that_does_not_match_declared_type(client):
+    response = await client.post(
+        "/api/documents",
+        files={"file": ("scan.png", io.BytesIO(b"not actually a png"), "image/png")},
+    )
+    assert response.status_code == 415
+
+
 async def test_upload_rate_limited_after_repeated_attempts(client):
     with patch("app.api.documents.process_document", new=AsyncMock()):
         for _ in range(20):
