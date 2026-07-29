@@ -19,8 +19,15 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql+asyncpg://sanad:sanad@db:5432/sanad
-      GEMINI_API_KEYS: ${GEMINI_API_KEYS:?GEMINI_API_KEYS must be set in .env - see .env.example}
+      # At least one of GROQ_API_KEYS / GEMINI_API_KEYS is required - the
+      # backend refuses to process documents (with a clear error) if both
+      # are empty. Not enforced here with a hard `:?` since either one alone
+      # is a valid, complete config - see .env.example.
+      GROQ_API_KEYS: ${GROQ_API_KEYS:-}
+      GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-120b}
+      GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-flash-latest}
+      AI_PROVIDER: ${AI_PROVIDER:-auto}
       UPLOAD_DIR: /app/uploads
       CORS_ORIGINS: '["http://localhost", "http://localhost:8080"]'
       ADMIN_EMAILS: ${ADMIN_EMAILS:-[]}
@@ -29,6 +36,10 @@ services:
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY must be set in .env}
       COOKIE_SECURE: "false"
+      # Fixed subnet below - only the frontend (nginx) container can ever
+      # legitimately connect from inside it, so it's safe to trust
+      # X-Forwarded-For from this whole range (see app/main.py).
+      TRUSTED_PROXY_HOSTS: 172.28.0.0/16
     volumes:
       - uploaded_files:/app/uploads
     depends_on:
@@ -52,3 +63,9 @@ services:
 volumes:
   postgres_data:
   uploaded_files:
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
