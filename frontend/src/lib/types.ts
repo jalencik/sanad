@@ -1,5 +1,12 @@
 export type DocumentStatus = 'pending' | 'processing' | 'done' | 'error'
 
+// Mirrors CANCELLED_MESSAGE in backend/app/services/pipeline.py - a
+// document cancelled by the user is stored as status "error" with this
+// exact message, so the UI can tell "you cancelled it" apart from a real
+// processing failure without a dedicated status value (and the migration
+// that would need).
+export const CANCELLED_MESSAGE = 'Cancelled.'
+
 export interface DocumentSummary {
   id: string
   original_filename: string

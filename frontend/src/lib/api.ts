@@ -85,6 +85,11 @@ export async function deleteDocument(id: string): Promise<void> {
   await api.delete(`/documents/${id}`)
 }
 
+export async function cancelDocument(id: string): Promise<DocumentDetail> {
+  const { data } = await api.post<DocumentDetail>(`/documents/${id}/cancel`)
+  return data
+}
+
 export function documentFileUrl(id: string): string {
   return `/api/documents/${id}/file`
 }

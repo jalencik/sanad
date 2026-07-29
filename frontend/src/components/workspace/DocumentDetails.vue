@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, toRef } from 'vue'
+import { computed, ref, toRef } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ExternalLink, FileX, LoaderCircle } from '@lucide/vue'
+import { ExternalLink, FileX, LoaderCircle, X } from '@lucide/vue'
 import { Progress } from '@/components/ui/progress'
 import { useDocumentsStore } from '@/stores/documents'
 import { documentFileUrl } from '@/lib/api'
+import { CANCELLED_MESSAGE } from '@/lib/types'
 import { formatCountdown, formatDate, formatDocumentType, formatFileSize } from '@/lib/format'
 import { useProcessingEta } from '@/lib/useProcessingEta'
 import type { SupportedLocale } from '@/i18n'
@@ -14,12 +15,28 @@ const { t, locale } = useI18n()
 
 const doc = computed(() => store.selectedDetail)
 const isActive = computed(() => doc.value?.status === 'pending' || doc.value?.status === 'processing')
+const isCancelled = computed(() => doc.value?.status === 'error' && doc.value.error_message === CANCELLED_MESSAGE)
 const { displayedProgress, secondsRemaining } = useProcessingEta({
   progressPercent: toRef(() => doc.value?.progress_percent ?? 0),
   active: toRef(() => isActive.value),
   processingStartedAt: toRef(() => doc.value?.processing_started_at),
   estimatedCompletionAt: toRef(() => doc.value?.estimated_completion_at),
 })
+
+const isCancelling = ref(false)
+
+async function handleCancel() {
+  const id = doc.value?.id
+  if (!id || isCancelling.value) return
+  isCancelling.value = true
+  try {
+    await store.cancelDocument(id)
+  } catch (error) {
+    console.error('Failed to cancel document', error)
+  } finally {
+    isCancelling.value = false
+  }
+}
 
 const fields = computed(() => {
   if (!doc.value) return []
@@ -43,32 +60,45 @@ const fields = computed(() => {
       {{ t('workspace.details.emptyState') }}
     </div>
 
-    <div v-else-if="isActive" class="flex flex-col items-center gap-3 py-10 text-center">
-      <LoaderCircle class="h-5 w-5 animate-spin text-accent" />
-      <p class="text-sm text-foreground">{{ t('workspace.details.analyzing') }}</p>
-      <p class="text-xs text-muted-foreground">{{ t('workspace.details.analyzingHint') }}</p>
-      <div class="mt-1 w-full max-w-[220px]">
-        <div class="h-1.5 w-full overflow-hidden rounded-full bg-accent/15">
-          <div
-            class="h-full rounded-full bg-accent transition-[width] duration-300 ease-out"
-            :style="{ width: `${displayedProgress}%` }"
-          />
+    <div v-else-if="isActive" class="flex flex-col gap-1 py-6 text-center">
+      <div class="flex justify-start">
+        <button
+          type="button"
+          class="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-50"
+          :disabled="isCancelling"
+          @click="handleCancel"
+        >
+          <X class="h-3.5 w-3.5" />
+          {{ isCancelling ? t('workspace.details.cancelling') : t('workspace.details.cancelButton') }}
+        </button>
+      </div>
+      <div class="flex flex-col items-center gap-3 py-4">
+        <LoaderCircle class="h-5 w-5 animate-spin text-accent" />
+        <p class="text-sm text-foreground">{{ t('workspace.details.analyzing') }}</p>
+        <p class="text-xs text-muted-foreground">{{ t('workspace.details.analyzingHint') }}</p>
+        <div class="mt-1 w-full max-w-[220px]">
+          <div class="h-1.5 w-full overflow-hidden rounded-full bg-accent/15">
+            <div
+              class="h-full rounded-full bg-accent transition-[width] duration-300 ease-out"
+              :style="{ width: `${displayedProgress}%` }"
+            />
+          </div>
+          <p class="mt-1.5 text-xs font-medium tabular-nums text-accent">{{ Math.round(displayedProgress) }}%</p>
+          <p v-if="secondsRemaining !== null" class="mt-0.5 text-xs tabular-nums text-muted-foreground">
+            {{
+              secondsRemaining > 0
+                ? t('workspace.details.timeRemaining', { time: formatCountdown(secondsRemaining) })
+                : t('workspace.details.almostDone')
+            }}
+          </p>
         </div>
-        <p class="mt-1.5 text-xs font-medium tabular-nums text-accent">{{ Math.round(displayedProgress) }}%</p>
-        <p v-if="secondsRemaining !== null" class="mt-0.5 text-xs tabular-nums text-muted-foreground">
-          {{
-            secondsRemaining > 0
-              ? t('workspace.details.timeRemaining', { time: formatCountdown(secondsRemaining) })
-              : t('workspace.details.almostDone')
-          }}
-        </p>
       </div>
     </div>
 
     <div v-else-if="doc.status === 'error'" class="flex flex-col items-center gap-3 py-10 text-center">
       <FileX class="h-5 w-5 text-destructive" />
-      <p class="text-sm text-foreground">{{ t('workspace.details.errorTitle') }}</p>
-      <p class="max-w-sm text-xs text-muted-foreground">{{ doc.error_message }}</p>
+      <p class="text-sm text-foreground">{{ isCancelled ? t('workspace.details.cancelledTitle') : t('workspace.details.errorTitle') }}</p>
+      <p v-if="!isCancelled" class="max-w-sm text-xs text-muted-foreground">{{ doc.error_message }}</p>
     </div>
 
     <div v-else class="space-y-4">

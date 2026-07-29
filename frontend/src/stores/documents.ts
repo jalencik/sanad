@@ -60,6 +60,13 @@ export const useDocumentsStore = defineStore('documents', {
       }
     },
 
+    async cancelDocument(id: string) {
+      const updated = await api.cancelDocument(id)
+      const idx = this.documents.findIndex((doc) => doc.id === id)
+      if (idx !== -1) this.documents[idx] = updated
+      if (this.selectedId === id) this.selectedDetail = updated
+    },
+
     async removeDocument(id: string) {
       await api.deleteDocument(id)
       this.documents = this.documents.filter((doc) => doc.id !== id)

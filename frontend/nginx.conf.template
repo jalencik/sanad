@@ -7,6 +7,11 @@ server {
     gzip on;
     gzip_types text/css application/javascript application/json image/svg+xml;
 
+    # nginx's own default (1m) is smaller than the backend's 25MB upload
+    # cap (see MAX_UPLOAD_SIZE_MB) - without this, a real scanned document
+    # over 1MB would be rejected here before the backend ever sees it.
+    client_max_body_size 26m;
+
     location /api/ {
         proxy_pass ${BACKEND_URL};
         # No "proxy_set_header Host $host" here on purpose: that would forward
