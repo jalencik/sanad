@@ -32,18 +32,60 @@ _ocr_slots = asyncio.Semaphore(2)
 # into an honest, visible failure the user can just retry.
 PROCESS_TIMEOUT_SECONDS = 300
 
+CANCELLED_MESSAGE = "Cancelled."
+
+
+class PipelineError(Exception):
+    """A pipeline failure whose message is already safe to show the user
+    as-is, as opposed to an arbitrary exception that might repeat back
+    internal details (file paths, a library's raw error body, ...)."""
+
 # Keeps strong references to startup-recovery tasks so they can't be
 # garbage-collected mid-flight (asyncio only holds a weak reference to a
 # bare create_task() result) - re-losing a "resumed" document to the exact
 # bug this exists to fix would be a bad way to find that out.
 _background_tasks: set[asyncio.Task] = set()
 
+# Lets a cancel request find the task actually processing a given document,
+# and lets that task's own cooperative checkpoints (see _run_pipeline) notice
+# a cancellation that arrived mid-OCR or mid-AI-call, when the underlying
+# blocking call can't be interrupted immediately.
+_running_tasks: dict[uuid.UUID, asyncio.Task] = {}
+_cancel_requested: set[uuid.UUID] = set()
+
 
 def _spawn(document_id: uuid.UUID) -> asyncio.Task[None]:
     task = asyncio.create_task(process_document(document_id))
     _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
+    _running_tasks[document_id] = task
+
+    def _cleanup(_task: asyncio.Task) -> None:
+        _background_tasks.discard(_task)
+        _running_tasks.pop(document_id, None)
+        _cancel_requested.discard(document_id)
+
+    task.add_done_callback(_cleanup)
     return task
+
+
+def request_cancel(document_id: uuid.UUID) -> bool:
+    """Best-effort cancellation of a document currently being processed.
+
+    Returns True if a task was found and asked to stop. The task may still
+    be mid-way through a single blocking OCR/AI call that can't be
+    interrupted immediately (Python can't force-kill a thread) - it will
+    stop at the next cooperative checkpoint in _run_pipeline, bounded by the
+    same PROCESS_TIMEOUT_SECONDS cap as any other hang. Callers that want the
+    document's status to flip to cancelled immediately (rather than whenever
+    the task next checks in) should update the row themselves too - see the
+    cancel endpoint in app/api/documents.py.
+    """
+    task = _running_tasks.get(document_id)
+    if task is None or task.done():
+        return False
+    _cancel_requested.add(document_id)
+    task.cancel()
+    return True
 
 
 async def process_document(document_id: uuid.UUID) -> None:
@@ -59,28 +101,51 @@ async def process_document(document_id: uuid.UUID) -> None:
 
         try:
             await asyncio.wait_for(_run_pipeline(document, session), timeout=PROCESS_TIMEOUT_SECONDS)
+        except asyncio.CancelledError:
+            logger.info("Document processing cancelled for %s", document_id)
+            document.status = DocumentStatus.ERROR
+            document.error_message = CANCELLED_MESSAGE
         except asyncio.TimeoutError:
             logger.error("Document processing timed out for %s", document_id)
             document.status = DocumentStatus.ERROR
             document.error_message = "Processing took too long. Please try uploading again."
-        except Exception as exc:  # noqa: BLE001 - pipeline boundary, persist any failure
-            logger.exception("Document processing failed for %s", document_id)
+        except PipelineError as exc:
+            logger.warning("Document processing failed for %s: %s", document_id, exc)
             document.status = DocumentStatus.ERROR
             document.error_message = str(exc)
+        except Exception:  # noqa: BLE001 - pipeline boundary, persist any failure
+            logger.exception("Document processing failed for %s", document_id)
+            document.status = DocumentStatus.ERROR
+            # The real exception is logged above for debugging - what reaches
+            # the user should never repeat back internal details (a stray
+            # file path, a library's raw error body, ...).
+            document.error_message = "Something went wrong while processing this document. Please try again."
 
         await session.commit()
 
 
+def _check_not_cancelled(document_id: uuid.UUID) -> None:
+    # task.cancel() interrupts a pure-asyncio await (waiting on the OCR
+    # semaphore, for instance) immediately, but Python can't force-kill a
+    # thread - a cancellation that arrives while a to_thread() call is
+    # actually running Tesseract or waiting on the AI provider has to wait
+    # for that call to return before this checkpoint can raise on its behalf.
+    if document_id in _cancel_requested:
+        raise asyncio.CancelledError()
+
+
 async def _run_pipeline(document: Document, session: AsyncSession) -> None:
-    # Both OCR and the Gemini call are synchronous, seconds-long blocking
-    # calls. Awaiting them directly on the event loop froze the WHOLE API
-    # (polls, logins, everything) for the duration of every document -
-    # to_thread moves them off the loop so the server stays responsive.
+    # Both OCR and the AI call are synchronous, seconds-long blocking calls.
+    # Awaiting them directly on the event loop froze the WHOLE API (polls,
+    # logins, everything) for the duration of every document - to_thread
+    # moves them off the loop so the server stays responsive.
     if document.ocr_text is None:
         path = storage.resolve_path(document.stored_filename)
 
         async with _ocr_slots:
             ocr_result = await asyncio.to_thread(ocr.run_ocr, path, document.mime_type)
+
+        _check_not_cancelled(document.id)
 
         document.ocr_text = ocr_result.text
         document.ocr_confidence = ocr_result.confidence
@@ -88,9 +153,13 @@ async def _run_pipeline(document: Document, session: AsyncSession) -> None:
         await session.commit()
 
     if not document.ocr_text.strip():
-        raise ValueError("No text could be extracted from this document")
+        raise PipelineError("No text could be extracted from this document")
+
+    _check_not_cancelled(document.id)
 
     analysis = await asyncio.to_thread(ai.analyze_document_text, document.ocr_text)
+
+    _check_not_cancelled(document.id)
 
     document.document_type = analysis.document_type
     document.document_number = analysis.document_number

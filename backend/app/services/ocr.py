@@ -9,6 +9,14 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
+# Tesseract has no internal timeout of its own - a pathological image (huge
+# dimensions, adversarial noise) can make it hang far past what any real
+# document needs. The outer pipeline still bounds total processing time at
+# PROCESS_TIMEOUT_SECONDS regardless, but this releases the OS thread (and
+# frees up an _ocr_slots permit) as soon as a single page is actually stuck,
+# rather than only when the whole document times out.
+_PAGE_TIMEOUT_SECONDS = 60
+
 
 @dataclass
 class OcrResult:
@@ -40,11 +48,16 @@ def run_ocr(path: Path, mime_type: str) -> OcrResult:
     page_confidences: list[float] = []
 
     for image in images:
-        text = pytesseract.image_to_string(image, lang=settings.tesseract_languages)
+        text = pytesseract.image_to_string(
+            image, lang=settings.tesseract_languages, timeout=_PAGE_TIMEOUT_SECONDS
+        )
         texts.append(text.strip())
 
         data = pytesseract.image_to_data(
-            image, lang=settings.tesseract_languages, output_type=pytesseract.Output.DICT
+            image,
+            lang=settings.tesseract_languages,
+            output_type=pytesseract.Output.DICT,
+            timeout=_PAGE_TIMEOUT_SECONDS,
         )
         word_confidences = [float(c) for c in data["conf"] if float(c) >= 0]
         if word_confidences:

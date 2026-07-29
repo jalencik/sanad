@@ -20,10 +20,19 @@ def check_rate_limit(
     attempts = [t for t in _attempts[key] if t > window_start]
 
     if len(attempts) >= max_attempts:
+        _attempts[key] = attempts
         raise HTTPException(429, message)
 
     attempts.append(now)
     _attempts[key] = attempts
+
+    # _attempts has no TTL of its own - every distinct key (IP, IP:email,
+    # user id, ...) this process has ever seen would otherwise sit in memory
+    # forever. Sweeping expired keys on the way through bounds it to
+    # whatever's been active in the last window, at negligible extra cost.
+    if len(_attempts) > 1000:
+        for stale_key in [k for k, v in _attempts.items() if not v or v[-1] <= window_start]:
+            del _attempts[stale_key]
 
 
 def reset() -> None:
