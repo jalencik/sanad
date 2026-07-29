@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 import jwt
 from argon2 import PasswordHasher
-from argon2.exceptions import VerifyMismatchError
+from argon2.exceptions import Argon2Error
 
 from app.core.config import get_settings
 
@@ -21,7 +21,10 @@ def hash_password(password: str) -> str:
 def verify_password(password: str, hashed: str) -> bool:
     try:
         return _hasher.verify(hashed, password)
-    except VerifyMismatchError:
+    except Argon2Error:
+        # Covers a genuine mismatch as well as a malformed/corrupt stored
+        # hash - either way, the only safe outcome is to deny the login
+        # rather than let an unexpected exception type turn into a 500.
         return False
 
 

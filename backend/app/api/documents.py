@@ -13,7 +13,7 @@ from app.models.user import User
 from app.schemas.document import DocumentDetail, DocumentSummary
 from app.services import storage
 from app.services.eta import estimate_completion, typical_processing_seconds
-from app.services.pipeline import process_document
+from app.services.pipeline import CANCELLED_MESSAGE, process_document, request_cancel
 from app.services.rate_limit import check_rate_limit
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
@@ -62,11 +62,14 @@ async def upload_document(
     if file.content_type not in settings.allowed_mime_types:
         raise HTTPException(415, f"Unsupported file type: {file.content_type}")
 
-    stored_filename, size = await storage.save_upload(file)
-
-    if size > settings.max_upload_size_mb * 1024 * 1024:
-        storage.resolve_path(stored_filename).unlink(missing_ok=True)
-        raise HTTPException(413, f"File exceeds {settings.max_upload_size_mb}MB limit")
+    try:
+        stored_filename, size = await storage.save_upload(
+            file, file.content_type, settings.max_upload_size_mb * 1024 * 1024
+        )
+    except storage.UploadTooLarge as exc:
+        raise HTTPException(413, f"File exceeds {settings.max_upload_size_mb}MB limit") from exc
+    except storage.UploadContentMismatch as exc:
+        raise HTTPException(415, "This file's content doesn't match its declared type") from exc
 
     document = Document(
         user_id=current_user.id,
@@ -127,7 +130,41 @@ async def get_document_file(
     if not path.exists():
         raise HTTPException(404, "File missing on disk")
 
-    return FileResponse(path, media_type=document.mime_type, filename=document.original_filename)
+    # mime_type is stored from the upload's declared Content-Type, which is
+    # client-controlled - forcing a download (rather than letting a browser
+    # render it inline) means a mislabeled file can't turn into an
+    # in-browser script/HTML execution risk merely by opening this link.
+    return FileResponse(
+        path,
+        media_type=document.mime_type,
+        filename=document.original_filename,
+        content_disposition_type="attachment",
+    )
+
+
+@router.post("/{document_id}/cancel", response_model=DocumentDetail)
+async def cancel_document(
+    document_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Document:
+    document = await _get_owned_document(document_id, current_user, db)
+
+    if document.status not in (DocumentStatus.PENDING, DocumentStatus.PROCESSING):
+        raise HTTPException(409, "This document isn't currently processing")
+
+    # Update the row directly rather than waiting for the background task to
+    # notice - the task may be mid-way through a blocking OCR/AI call it
+    # can't be interrupted out of immediately (see pipeline.request_cancel),
+    # so this is what makes cancellation feel instant to the user.
+    document.status = DocumentStatus.ERROR
+    document.error_message = CANCELLED_MESSAGE
+    await db.commit()
+    await db.refresh(document)
+
+    request_cancel(document.id)
+
+    return document
 
 
 @router.delete("/{document_id}", status_code=204)
