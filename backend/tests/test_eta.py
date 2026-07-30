@@ -39,7 +39,7 @@ async def test_typical_processing_seconds_averages_recent_completed_durations():
             document = Document(
                 user_id=user_id,
                 original_filename="d.png",
-                stored_filename=f"{uuid.uuid4()}.png",
+                file_content=b"d",
                 mime_type="image/png",
                 file_size=10,
                 status=DocumentStatus.DONE,
@@ -62,7 +62,7 @@ async def test_typical_processing_seconds_ignores_documents_never_processed():
         document = Document(
             user_id=user_id,
             original_filename="d.png",
-            stored_filename=f"{uuid.uuid4()}.png",
+            file_content=b"d",
             mime_type="image/png",
             file_size=10,
             status=DocumentStatus.DONE,

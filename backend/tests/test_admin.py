@@ -36,7 +36,7 @@ async def test_admin_users_returns_all_users_with_document_counts(anon_client):
                 Document(
                     user_id=admin_user.id,
                     original_filename="a.png",
-                    stored_filename="stored-a.png",
+                    file_content=b"a",
                     mime_type="image/png",
                     file_size=10,
                     status=DocumentStatus.DONE,
@@ -44,7 +44,7 @@ async def test_admin_users_returns_all_users_with_document_counts(anon_client):
                 Document(
                     user_id=admin_user.id,
                     original_filename="b.png",
-                    stored_filename="stored-b.png",
+                    file_content=b"b",
                     mime_type="image/png",
                     file_size=10,
                     status=DocumentStatus.ERROR,

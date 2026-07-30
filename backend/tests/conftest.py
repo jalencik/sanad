@@ -2,7 +2,6 @@ import os
 
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///./test_sanad.db")
 os.environ.setdefault("GEMINI_API_KEY", "test-key")
-os.environ.setdefault("UPLOAD_DIR", "./test_uploads")
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-at-least-32-bytes-long-for-hs256")
 
 import pytest_asyncio  # noqa: E402

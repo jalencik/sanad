@@ -19,10 +19,9 @@ frontend/.vite/
 *.log
 npm-debug.log*
 
-# Uploaded documents and local databases (runtime data, never committed)
-backend/uploads/
+# Local databases (runtime data, never committed) - uploaded documents
+# themselves live in Postgres now (app/models/document.py), not on disk
 backend/data/
-backend/test_uploads/
 *.db
 
 # Frontend build copied in here only by Dockerfile.koyeb, at image build
