@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from app.db.session import async_session_factory
 from app.models.document import Document, DocumentStatus
-from app.services import ai, ocr, storage
+from app.services import ai, ocr
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +99,7 @@ def request_cancel(document_id: uuid.UUID) -> bool:
     return True
 
 
-async def _mark_processing(document_id: uuid.UUID) -> tuple[str, str, str | None] | None:
+async def _mark_processing(document_id: uuid.UUID) -> tuple[bytes | None, str, str | None] | None:
     """Flips a document to PROCESSING and hands back just the plain values
     _run_pipeline needs - never a live ORM object - so this is the only
     database round-trip before the (potentially minutes-long) OCR/AI work
@@ -114,7 +114,7 @@ async def _mark_processing(document_id: uuid.UUID) -> tuple[str, str, str | None
         document.processing_started_at = datetime.now(UTC)
         await session.commit()
 
-        return document.stored_filename, document.mime_type, document.ocr_text
+        return document.file_content, document.mime_type, document.ocr_text
 
 
 async def _mark_done(document_id: uuid.UUID, analysis: ai.DocumentAnalysis) -> None:
@@ -152,10 +152,10 @@ async def process_document(document_id: uuid.UUID) -> None:
         started = await _mark_processing(document_id)
         if started is None:
             return
-        stored_filename, mime_type, ocr_text = started
+        file_content, mime_type, ocr_text = started
 
         await asyncio.wait_for(
-            _run_pipeline(document_id, stored_filename, mime_type, ocr_text),
+            _run_pipeline(document_id, file_content, mime_type, ocr_text),
             timeout=PROCESS_TIMEOUT_SECONDS,
         )
     except asyncio.CancelledError:
@@ -185,7 +185,7 @@ def _check_not_cancelled(document_id: uuid.UUID) -> None:
         raise asyncio.CancelledError()
 
 
-async def _run_pipeline(document_id: uuid.UUID, stored_filename: str, mime_type: str, ocr_text: str | None) -> None:
+async def _run_pipeline(document_id: uuid.UUID, file_content: bytes | None, mime_type: str, ocr_text: str | None) -> None:
     # Both OCR and the AI call are synchronous, seconds-long-to-minutes-long
     # blocking calls. Awaiting them directly on the event loop froze the
     # WHOLE API (polls, logins, everything) for the duration of every
@@ -196,10 +196,16 @@ async def _run_pipeline(document_id: uuid.UUID, stored_filename: str, mime_type:
     # connection pool and hang unrelated requests (login, cancel, refresh) -
     # every database touch here is its own short-lived session instead.
     if ocr_text is None:
-        path = storage.resolve_path(stored_filename)
+        if file_content is None:
+            # Only possible for a document uploaded before file bytes moved
+            # into the documents table (see the model + 0006 migration) -
+            # its on-disk file is gone for good on a host with no
+            # persistent disk. A clear, specific failure here beats letting
+            # this reach OCR and blow up as an unhandled FileNotFoundError.
+            raise PipelineError("This document's uploaded file is no longer available. Please re-upload it.")
 
         async with _ocr_slots:
-            ocr_result = await asyncio.to_thread(ocr.run_ocr, path, mime_type)
+            ocr_result = await asyncio.to_thread(ocr.run_ocr, file_content, mime_type)
 
         _check_not_cancelled(document_id)
 

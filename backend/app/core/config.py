@@ -64,7 +64,6 @@ class Settings(BaseSettings):
             return value.replace("postgresql://", "postgresql+asyncpg://", 1)
         return value
 
-    upload_dir: Path = BASE_DIR / "uploads"
     max_upload_size_mb: int = 25
     allowed_mime_types: tuple[str, ...] = (
         "application/pdf",

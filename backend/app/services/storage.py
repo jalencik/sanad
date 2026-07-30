@@ -1,13 +1,4 @@
-import uuid
-from pathlib import Path
-
 from fastapi import UploadFile
-
-from app.core.config import get_settings
-
-settings = get_settings()
-
-_CHUNK_SIZE = 1024 * 1024
 
 
 class UploadTooLarge(Exception):
@@ -21,7 +12,7 @@ class UploadContentMismatch(Exception):
 def _looks_like(head: bytes, mime_type: str) -> bool:
     # Sniffs real file bytes rather than trusting the client-supplied
     # Content-Type header (trivially spoofable) - this is what actually
-    # keeps a mislabeled file out of the pipeline and off disk.
+    # keeps a mislabeled file out of the pipeline.
     if mime_type == "application/pdf":
         return head.startswith(b"%PDF-")
     if mime_type == "image/png":
@@ -35,42 +26,33 @@ def _looks_like(head: bytes, mime_type: str) -> bool:
     return False
 
 
-def ensure_upload_dir() -> Path:
-    settings.upload_dir.mkdir(parents=True, exist_ok=True)
-    return settings.upload_dir
+_CHUNK_SIZE = 1024 * 1024
 
 
-async def save_upload(file: UploadFile, mime_type: str, max_size_bytes: int) -> tuple[str, int]:
-    """Streams the upload to disk, enforcing the size cap as bytes arrive
-    (not after the fact) and verifying the first chunk actually matches the
-    declared MIME type. Raises UploadTooLarge/UploadContentMismatch and
-    cleans up the partial file on either failure."""
-    upload_dir = ensure_upload_dir()
-    suffix = Path(file.filename or "").suffix.lower()
-    stored_name = f"{uuid.uuid4().hex}{suffix}"
-    destination = upload_dir / stored_name
+async def save_upload(file: UploadFile, mime_type: str, max_size_bytes: int) -> bytes:
+    """Validates an upload as bytes arrive and returns the full content.
 
+    Enforces the size cap incrementally (never buffers past it) and verifies
+    the first chunk actually matches the declared MIME type, exactly as
+    before - the only change is the validated bytes are handed back to the
+    caller to persist (in the documents table) instead of being written to
+    local disk, which Render's free tier doesn't preserve across a redeploy
+    or a scale-to-zero cycle anyway.
+    """
+    chunks: list[bytes] = []
     size = 0
     first_chunk = True
-    try:
-        with destination.open("wb") as out_file:
-            while chunk := await file.read(_CHUNK_SIZE):
-                if first_chunk:
-                    if not _looks_like(chunk, mime_type):
-                        raise UploadContentMismatch(f"File content doesn't match declared type {mime_type}")
-                    first_chunk = False
 
-                size += len(chunk)
-                if size > max_size_bytes:
-                    raise UploadTooLarge(f"File exceeds {max_size_bytes} byte limit")
+    while chunk := await file.read(_CHUNK_SIZE):
+        if first_chunk:
+            if not _looks_like(chunk, mime_type):
+                raise UploadContentMismatch(f"File content doesn't match declared type {mime_type}")
+            first_chunk = False
 
-                out_file.write(chunk)
-    except (UploadTooLarge, UploadContentMismatch):
-        destination.unlink(missing_ok=True)
-        raise
+        size += len(chunk)
+        if size > max_size_bytes:
+            raise UploadTooLarge(f"File exceeds {max_size_bytes} byte limit")
 
-    return stored_name, size
+        chunks.append(chunk)
 
-
-def resolve_path(stored_filename: str) -> Path:
-    return settings.upload_dir / stored_filename
+    return b"".join(chunks)

@@ -1,6 +1,6 @@
+import io
 from collections.abc import Iterator
 from dataclasses import dataclass
-from pathlib import Path
 
 import fitz  # PyMuPDF
 import pytesseract
@@ -25,15 +25,13 @@ class OcrResult:
     confidence: float
 
 
-def _iter_pdf_pages(path: Path) -> Iterator[Image.Image]:
+def _iter_pdf_pages(data: bytes) -> Iterator[Image.Image]:
     # Yields one rendered page at a time rather than building a list of all
     # of them up front - an 8-page PDF at 300 DPI is easily 150-200MB of raw
-    # RGB buffers, which on a 512MB host (and with up to 2 documents OCR'd
-    # concurrently, see _ocr_slots in pipeline.py) is real OOM risk. Each
-    # page becomes eligible for garbage collection as soon as the loop below
-    # moves past it instead of all of them living until the whole document
-    # finishes.
-    with fitz.open(path) as doc:
+    # RGB buffers, which on a 512MB host is real OOM risk. Each page becomes
+    # eligible for garbage collection as soon as the loop below moves past
+    # it instead of all of them living until the whole document finishes.
+    with fitz.open(stream=data, filetype="pdf") as doc:
         page_count = min(len(doc), settings.max_pdf_pages)
         for page_index in range(page_count):
             page = doc[page_index]
@@ -41,11 +39,11 @@ def _iter_pdf_pages(path: Path) -> Iterator[Image.Image]:
             yield Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
 
 
-def _iter_images(path: Path, mime_type: str) -> Iterator[Image.Image]:
+def _iter_images(data: bytes, mime_type: str) -> Iterator[Image.Image]:
     if mime_type == "application/pdf":
-        yield from _iter_pdf_pages(path)
+        yield from _iter_pdf_pages(data)
     else:
-        yield Image.open(path).convert("RGB")
+        yield Image.open(io.BytesIO(data)).convert("RGB")
 
 
 def _text_from_data(data: dict) -> str:
@@ -63,11 +61,11 @@ def _text_from_data(data: dict) -> str:
     return "\n".join(" ".join(words) for words in lines.values())
 
 
-def run_ocr(path: Path, mime_type: str) -> OcrResult:
+def run_ocr(data: bytes, mime_type: str) -> OcrResult:
     texts: list[str] = []
     page_confidences: list[float] = []
 
-    for image in _iter_images(path, mime_type):
+    for image in _iter_images(data, mime_type):
         # A single image_to_data call replaces what used to be a separate
         # image_to_string + image_to_data pair - each ran Tesseract as its
         # own subprocess with its own _PAGE_TIMEOUT_SECONDS ceiling, so two

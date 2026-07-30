@@ -1,7 +1,8 @@
+import re
 import uuid
+from urllib.parse import quote
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Response, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -63,9 +64,7 @@ async def upload_document(
         raise HTTPException(415, f"Unsupported file type: {file.content_type}")
 
     try:
-        stored_filename, size = await storage.save_upload(
-            file, file.content_type, settings.max_upload_size_mb * 1024 * 1024
-        )
+        content = await storage.save_upload(file, file.content_type, settings.max_upload_size_mb * 1024 * 1024)
     except storage.UploadTooLarge as exc:
         raise HTTPException(413, f"File exceeds {settings.max_upload_size_mb}MB limit") from exc
     except storage.UploadContentMismatch as exc:
@@ -73,10 +72,10 @@ async def upload_document(
 
     document = Document(
         user_id=current_user.id,
-        original_filename=file.filename or stored_filename,
-        stored_filename=stored_filename,
+        original_filename=file.filename or "document",
+        file_content=content,
         mime_type=file.content_type,
-        file_size=size,
+        file_size=len(content),
     )
     db.add(document)
     await db.commit()
@@ -118,27 +117,40 @@ async def get_document(
     return document
 
 
+def _content_disposition(filename: str) -> str:
+    # filename is the client-supplied original filename - safe to put in a
+    # header's UTF-8-encoded form (RFC 5987/6266), but never interpolated
+    # raw: an unescaped quote or CRLF in it could break out of the
+    # filename="..." param or inject a second header. The plain ASCII
+    # fallback (for clients that ignore filename*) gets the same treatment,
+    # stripped down to characters that can't do either.
+    ascii_fallback = re.sub(r"[^A-Za-z0-9._-]", "_", filename) or "document"
+    encoded = quote(filename, safe="")
+    return f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{encoded}"
+
+
 @router.get("/{document_id}/file")
 async def get_document_file(
     document_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> FileResponse:
+) -> Response:
     document = await _get_owned_document(document_id, current_user, db)
 
-    path = storage.resolve_path(document.stored_filename)
-    if not path.exists():
-        raise HTTPException(404, "File missing on disk")
+    if document.file_content is None:
+        # Either uploaded before file bytes moved into the documents table
+        # (see the model + 0006 migration), or - now unreachable in normal
+        # operation - some other gap. Either way there's no file to serve.
+        raise HTTPException(404, "This document's file is no longer available. Please re-upload it.")
 
     # mime_type is stored from the upload's declared Content-Type, which is
     # client-controlled - forcing a download (rather than letting a browser
     # render it inline) means a mislabeled file can't turn into an
     # in-browser script/HTML execution risk merely by opening this link.
-    return FileResponse(
-        path,
+    return Response(
+        content=document.file_content,
         media_type=document.mime_type,
-        filename=document.original_filename,
-        content_disposition_type="attachment",
+        headers={"Content-Disposition": _content_disposition(document.original_filename)},
     )
 
 
@@ -175,6 +187,7 @@ async def delete_document(
 ) -> None:
     document = await _get_owned_document(document_id, current_user, db)
 
-    storage.resolve_path(document.stored_filename).unlink(missing_ok=True)
+    # file_content lives on the row itself now - deleting it deletes the
+    # file, no separate disk cleanup needed.
     await db.delete(document)
     await db.commit()

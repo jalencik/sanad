@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Enum, Float, ForeignKey, Integer, String, Text, Uuid, func
+from sqlalchemy import JSON, DateTime, Enum, Float, ForeignKey, Integer, LargeBinary, String, Text, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -21,7 +21,15 @@ class Document(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     original_filename: Mapped[str] = mapped_column(String(255))
-    stored_filename: Mapped[str] = mapped_column(String(255), unique=True)
+    # The uploaded bytes themselves, not a path - Render's free tier (and
+    # most free container hosts) gives the app no persistent disk, so a
+    # redeploy, crash, or plain scale-to-zero wipes anything written to the
+    # filesystem. Storing the file in Postgres instead means it survives
+    # exactly as long as the row does. Nullable only because it can't be
+    # backfilled for documents uploaded before this column existed - their
+    # on-disk file is already long gone; see the None-handling in
+    # app/services/pipeline.py and the file-download route.
+    file_content: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     mime_type: Mapped[str] = mapped_column(String(100))
     file_size: Mapped[int] = mapped_column(Integer)
 
