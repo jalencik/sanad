@@ -20,16 +20,27 @@ PROGRESS_ANALYSIS_DONE = 90
 PROGRESS_COMPLETE = 100
 
 # OCR is CPU-heavy (Tesseract + 300-DPI page rasterization). Running it via
-# to_thread keeps the event loop free, but unbounded parallel Tesseract on a
-# small host (Render free tier: fractional CPU, 512MB) would thrash or OOM -
-# cap concurrent jobs; further uploads simply wait their turn in "queued".
-_ocr_slots = asyncio.Semaphore(2)
+# to_thread keeps the event loop free, but Render's free tier gives this
+# whole app a fractional (0.1) vCPU - two Tesseract processes fighting over
+# that isn't real parallelism, it's both jobs running slower, which only
+# makes the PROCESS_TIMEOUT_SECONDS race below worse for both. One at a time
+# is both safer and, in practice, not meaningfully slower end to end; further
+# uploads simply wait their turn in "queued".
+_ocr_slots = asyncio.Semaphore(1)
 
 # A single document should never legitimately take longer than this. Without
 # a cap, a hung OCR call or a stalled network connection to Gemini holds its
 # thread (and the user's progress bar) forever - this turns a silent freeze
 # into an honest, visible failure the user can just retry.
-PROCESS_TIMEOUT_SECONDS = 300
+#
+# This has to stay honest about the pipeline's own worst case, or it fires
+# on a document that was never actually stuck: OCR alone can legitimately
+# take up to max_pdf_pages * _PAGE_TIMEOUT_SECONDS (app/services/ocr.py) -
+# 8 * 60s = 480s today - before the AI call even starts, and that call can
+# itself retry across every configured Groq/Gemini key (app/services/ai.py)
+# before giving up. 900s leaves real headroom above that combined worst
+# case instead of quietly assuming OCR would always be fast.
+PROCESS_TIMEOUT_SECONDS = 900
 
 CANCELLED_MESSAGE = "Cancelled."
 
@@ -180,7 +191,7 @@ async def _run_pipeline(document_id: uuid.UUID, stored_filename: str, mime_type:
     # WHOLE API (polls, logins, everything) for the duration of every
     # document - to_thread moves them off the loop so the server stays
     # responsive. Just as important: no database session is held open across
-    # either call. A session checked out for the full 5-minute cap, times
+    # either call. A session checked out for the full processing cap, times
     # several documents processing at once, was enough to exhaust the
     # connection pool and hang unrelated requests (login, cancel, refresh) -
     # every database touch here is its own short-lived session instead.
