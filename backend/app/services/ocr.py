@@ -48,22 +48,43 @@ def _iter_images(path: Path, mime_type: str) -> Iterator[Image.Image]:
         yield Image.open(path).convert("RGB")
 
 
+def _text_from_data(data: dict) -> str:
+    # image_to_data's per-word output already contains everything
+    # image_to_string would give us - grouping it back into lines by
+    # (block, paragraph, line) reconstructs the same reading-order text
+    # without a second full Tesseract pass over the same image.
+    lines: dict[tuple[int, int, int], list[str]] = {}
+    for i, word in enumerate(data["text"]):
+        word = word.strip()
+        if not word:
+            continue
+        key = (data["block_num"][i], data["par_num"][i], data["line_num"][i])
+        lines.setdefault(key, []).append(word)
+    return "\n".join(" ".join(words) for words in lines.values())
+
+
 def run_ocr(path: Path, mime_type: str) -> OcrResult:
     texts: list[str] = []
     page_confidences: list[float] = []
 
     for image in _iter_images(path, mime_type):
-        text = pytesseract.image_to_string(
-            image, lang=settings.tesseract_languages, timeout=_PAGE_TIMEOUT_SECONDS
-        )
-        texts.append(text.strip())
-
+        # A single image_to_data call replaces what used to be a separate
+        # image_to_string + image_to_data pair - each ran Tesseract as its
+        # own subprocess with its own _PAGE_TIMEOUT_SECONDS ceiling, so two
+        # calls meant a page could legitimately take up to twice as long as
+        # this function's name suggests. On an 8-page PDF that pushed the
+        # worst case (8 * 2 * 60s = 960s) well past PROCESS_TIMEOUT_SECONDS
+        # in pipeline.py, which could abort an honestly-still-working job
+        # as "took too long." One call halves both the CPU spent per page
+        # (real money on a fractional-CPU host) and that worst case.
         data = pytesseract.image_to_data(
             image,
             lang=settings.tesseract_languages,
             output_type=pytesseract.Output.DICT,
             timeout=_PAGE_TIMEOUT_SECONDS,
         )
+        texts.append(_text_from_data(data))
+
         word_confidences = [float(c) for c in data["conf"] if float(c) >= 0]
         if word_confidences:
             page_confidences.append(sum(word_confidences) / len(word_confidences))
