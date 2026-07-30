@@ -74,6 +74,56 @@ async def test_process_document_success():
         assert refreshed.progress_percent == PROGRESS_COMPLETE
 
 
+async def test_process_document_never_holds_one_session_across_the_ocr_and_ai_calls():
+    # Regression guard: process_document used to open a single DB session
+    # and hold it for the entire pipeline, including the (potentially
+    # minutes-long) OCR/AI calls. Under concurrent uploads that exhausted
+    # the connection pool and hung unrelated requests (login, cancel,
+    # refresh). Each database touch must now be its own short-lived
+    # session - proven here by counting how many times a session is opened
+    # during one successful run: mark-processing, OCR-done write, and
+    # mark-done, at minimum.
+    user_id = await _create_test_user()
+
+    async with async_session_factory() as session:
+        document = Document(
+            user_id=user_id,
+            original_filename="passport.png",
+            stored_filename="stored.png",
+            mime_type="image/png",
+            file_size=10,
+        )
+        session.add(document)
+        await session.commit()
+        await session.refresh(document)
+        document_id = document.id
+
+    fake_analysis = DocumentAnalysis(
+        document_type="passport", detected_language="Uzbek", summary_original="s", summary_english="s"
+    )
+
+    session_open_count = 0
+    real_factory = async_session_factory
+
+    def _counting_factory():
+        nonlocal session_open_count
+        session_open_count += 1
+        return real_factory()
+
+    with (
+        patch("app.services.pipeline.ocr.run_ocr", return_value=OcrResult(text="text", confidence=0.9)),
+        patch("app.services.pipeline.ai.analyze_document_text", return_value=fake_analysis),
+        patch("app.services.pipeline.async_session_factory", side_effect=_counting_factory),
+    ):
+        await process_document(document_id)
+
+    assert session_open_count >= 3
+
+    async with async_session_factory() as session:
+        refreshed = await session.get(Document, document_id)
+        assert refreshed.status == DocumentStatus.DONE
+
+
 async def test_process_document_marks_error_on_empty_ocr():
     user_id = await _create_test_user()
 

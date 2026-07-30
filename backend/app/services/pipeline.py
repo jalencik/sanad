@@ -4,7 +4,6 @@ import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import async_session_factory
 from app.models.document import Document, DocumentStatus
@@ -39,6 +38,7 @@ class PipelineError(Exception):
     """A pipeline failure whose message is already safe to show the user
     as-is, as opposed to an arbitrary exception that might repeat back
     internal details (file paths, a library's raw error body, ...)."""
+
 
 # Keeps strong references to startup-recovery tasks so they can't be
 # garbage-collected mid-flight (asyncio only holds a weak reference to a
@@ -88,40 +88,80 @@ def request_cancel(document_id: uuid.UUID) -> bool:
     return True
 
 
-async def process_document(document_id: uuid.UUID) -> None:
+async def _mark_processing(document_id: uuid.UUID) -> tuple[str, str, str | None] | None:
+    """Flips a document to PROCESSING and hands back just the plain values
+    _run_pipeline needs - never a live ORM object - so this is the only
+    database round-trip before the (potentially minutes-long) OCR/AI work
+    begins. Returns None if the document no longer exists."""
     async with async_session_factory() as session:
         document = await session.get(Document, document_id)
         if document is None:
-            return
+            return None
 
         document.status = DocumentStatus.PROCESSING
         document.progress_percent = PROGRESS_QUEUED
         document.processing_started_at = datetime.now(UTC)
         await session.commit()
 
-        try:
-            await asyncio.wait_for(_run_pipeline(document, session), timeout=PROCESS_TIMEOUT_SECONDS)
-        except asyncio.CancelledError:
-            logger.info("Document processing cancelled for %s", document_id)
-            document.status = DocumentStatus.ERROR
-            document.error_message = CANCELLED_MESSAGE
-        except asyncio.TimeoutError:
-            logger.error("Document processing timed out for %s", document_id)
-            document.status = DocumentStatus.ERROR
-            document.error_message = "Processing took too long. Please try uploading again."
-        except PipelineError as exc:
-            logger.warning("Document processing failed for %s: %s", document_id, exc)
-            document.status = DocumentStatus.ERROR
-            document.error_message = str(exc)
-        except Exception:  # noqa: BLE001 - pipeline boundary, persist any failure
-            logger.exception("Document processing failed for %s", document_id)
-            document.status = DocumentStatus.ERROR
-            # The real exception is logged above for debugging - what reaches
-            # the user should never repeat back internal details (a stray
-            # file path, a library's raw error body, ...).
-            document.error_message = "Something went wrong while processing this document. Please try again."
+        return document.stored_filename, document.mime_type, document.ocr_text
 
+
+async def _mark_done(document_id: uuid.UUID, analysis: ai.DocumentAnalysis) -> None:
+    async with async_session_factory() as session:
+        document = await session.get(Document, document_id)
+        if document is None:  # deleted mid-processing
+            return
+
+        document.document_type = analysis.document_type
+        document.document_number = analysis.document_number
+        document.issuing_authority = analysis.issuing_authority
+        document.issue_date = analysis.issue_date
+        document.expiry_date = analysis.expiry_date
+        document.detected_language = analysis.detected_language
+        document.key_fields = {field.key: field.value for field in analysis.key_fields}
+        document.summary_original = analysis.summary_original
+        document.summary_english = analysis.summary_english
+        document.progress_percent = PROGRESS_COMPLETE
+        document.status = DocumentStatus.DONE
         await session.commit()
+
+
+async def _mark_failed(document_id: uuid.UUID, message: str) -> None:
+    async with async_session_factory() as session:
+        document = await session.get(Document, document_id)
+        if document is None:  # deleted mid-processing
+            return
+        document.status = DocumentStatus.ERROR
+        document.error_message = message
+        await session.commit()
+
+
+async def process_document(document_id: uuid.UUID) -> None:
+    try:
+        started = await _mark_processing(document_id)
+        if started is None:
+            return
+        stored_filename, mime_type, ocr_text = started
+
+        await asyncio.wait_for(
+            _run_pipeline(document_id, stored_filename, mime_type, ocr_text),
+            timeout=PROCESS_TIMEOUT_SECONDS,
+        )
+    except asyncio.CancelledError:
+        logger.info("Document processing cancelled for %s", document_id)
+        await _mark_failed(document_id, CANCELLED_MESSAGE)
+    except asyncio.TimeoutError:
+        logger.error("Document processing timed out for %s", document_id)
+        await _mark_failed(document_id, "Processing took too long. Please try uploading again.")
+    except PipelineError as exc:
+        logger.warning("Document processing failed for %s: %s", document_id, exc)
+        await _mark_failed(document_id, str(exc))
+    except Exception:  # noqa: BLE001 - pipeline boundary, persist any failure
+        logger.exception("Document processing failed for %s", document_id)
+        # The real exception is logged above for debugging - what reaches
+        # the user should never repeat back internal details (a stray file
+        # path, a library's raw error body, a raw DB error, ...).
+        await _mark_failed(document_id, "Something went wrong while processing this document. Please try again.")
 
 
 def _check_not_cancelled(document_id: uuid.UUID) -> None:
@@ -134,45 +174,44 @@ def _check_not_cancelled(document_id: uuid.UUID) -> None:
         raise asyncio.CancelledError()
 
 
-async def _run_pipeline(document: Document, session: AsyncSession) -> None:
-    # Both OCR and the AI call are synchronous, seconds-long blocking calls.
-    # Awaiting them directly on the event loop froze the WHOLE API (polls,
-    # logins, everything) for the duration of every document - to_thread
-    # moves them off the loop so the server stays responsive.
-    if document.ocr_text is None:
-        path = storage.resolve_path(document.stored_filename)
+async def _run_pipeline(document_id: uuid.UUID, stored_filename: str, mime_type: str, ocr_text: str | None) -> None:
+    # Both OCR and the AI call are synchronous, seconds-long-to-minutes-long
+    # blocking calls. Awaiting them directly on the event loop froze the
+    # WHOLE API (polls, logins, everything) for the duration of every
+    # document - to_thread moves them off the loop so the server stays
+    # responsive. Just as important: no database session is held open across
+    # either call. A session checked out for the full 5-minute cap, times
+    # several documents processing at once, was enough to exhaust the
+    # connection pool and hang unrelated requests (login, cancel, refresh) -
+    # every database touch here is its own short-lived session instead.
+    if ocr_text is None:
+        path = storage.resolve_path(stored_filename)
 
         async with _ocr_slots:
-            ocr_result = await asyncio.to_thread(ocr.run_ocr, path, document.mime_type)
+            ocr_result = await asyncio.to_thread(ocr.run_ocr, path, mime_type)
 
-        _check_not_cancelled(document.id)
+        _check_not_cancelled(document_id)
 
-        document.ocr_text = ocr_result.text
-        document.ocr_confidence = ocr_result.confidence
-        document.progress_percent = PROGRESS_OCR_DONE
-        await session.commit()
+        ocr_text = ocr_result.text
+        async with async_session_factory() as session:
+            document = await session.get(Document, document_id)
+            if document is None:  # deleted mid-processing
+                return
+            document.ocr_text = ocr_result.text
+            document.ocr_confidence = ocr_result.confidence
+            document.progress_percent = PROGRESS_OCR_DONE
+            await session.commit()
 
-    if not document.ocr_text.strip():
+    if not ocr_text.strip():
         raise PipelineError("No text could be extracted from this document")
 
-    _check_not_cancelled(document.id)
+    _check_not_cancelled(document_id)
 
-    analysis = await asyncio.to_thread(ai.analyze_document_text, document.ocr_text)
+    analysis = await asyncio.to_thread(ai.analyze_document_text, ocr_text)
 
-    _check_not_cancelled(document.id)
+    _check_not_cancelled(document_id)
 
-    document.document_type = analysis.document_type
-    document.document_number = analysis.document_number
-    document.issuing_authority = analysis.issuing_authority
-    document.issue_date = analysis.issue_date
-    document.expiry_date = analysis.expiry_date
-    document.detected_language = analysis.detected_language
-    document.key_fields = {field.key: field.value for field in analysis.key_fields}
-    document.summary_original = analysis.summary_original
-    document.summary_english = analysis.summary_english
-    document.progress_percent = PROGRESS_ANALYSIS_DONE
-    document.status = DocumentStatus.DONE
-    document.progress_percent = PROGRESS_COMPLETE
+    await _mark_done(document_id, analysis)
 
 
 async def recover_stuck_documents() -> list[asyncio.Task[None]]:

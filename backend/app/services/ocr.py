@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,30 +25,34 @@ class OcrResult:
     confidence: float
 
 
-def _render_pdf_pages(path: Path) -> list[Image.Image]:
-    images: list[Image.Image] = []
+def _iter_pdf_pages(path: Path) -> Iterator[Image.Image]:
+    # Yields one rendered page at a time rather than building a list of all
+    # of them up front - an 8-page PDF at 300 DPI is easily 150-200MB of raw
+    # RGB buffers, which on a 512MB host (and with up to 2 documents OCR'd
+    # concurrently, see _ocr_slots in pipeline.py) is real OOM risk. Each
+    # page becomes eligible for garbage collection as soon as the loop below
+    # moves past it instead of all of them living until the whole document
+    # finishes.
     with fitz.open(path) as doc:
         page_count = min(len(doc), settings.max_pdf_pages)
         for page_index in range(page_count):
             page = doc[page_index]
             pixmap = page.get_pixmap(dpi=300)
-            image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
-            images.append(image)
-    return images
+            yield Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
 
 
-def _load_images(path: Path, mime_type: str) -> list[Image.Image]:
+def _iter_images(path: Path, mime_type: str) -> Iterator[Image.Image]:
     if mime_type == "application/pdf":
-        return _render_pdf_pages(path)
-    return [Image.open(path).convert("RGB")]
+        yield from _iter_pdf_pages(path)
+    else:
+        yield Image.open(path).convert("RGB")
 
 
 def run_ocr(path: Path, mime_type: str) -> OcrResult:
-    images = _load_images(path, mime_type)
     texts: list[str] = []
     page_confidences: list[float] = []
 
-    for image in images:
+    for image in _iter_images(path, mime_type):
         text = pytesseract.image_to_string(
             image, lang=settings.tesseract_languages, timeout=_PAGE_TIMEOUT_SECONDS
         )
