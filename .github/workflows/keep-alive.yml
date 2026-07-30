@@ -1,29 +1,46 @@
-# Keep the Render free-tier services awake during waking hours.
+# Keep the Render free-tier services awake, weighted toward the service
+# whose cold start actually hurts.
 #
 # Render's free tier spins a service down after 15 minutes without traffic,
-# and the next visitor then waits ~50 seconds for a cold start - by far the
-# slowest thing a user ever experiences with this app. Pinging the frontend's
-# /api/health route warms BOTH services with one request (nginx proxies it
-# through to the backend).
+# and the next visitor then waits ~30-60s for a cold start. The backend is
+# the expensive half of that: Python boot, a database connection, and an
+# `alembic upgrade head` check before it even starts listening. The frontend
+# is a static nginx container with none of that, so it isn't worth spending
+# the same budget on it.
 #
-# Why not 24/7: the free tier includes 750 instance-hours per month POOLED
-# across all services. Two Docker services awake around the clock would need
-# ~1,440 hours and get the workspace suspended mid-month. This schedule keeps
-# things warm 03:00-13:59 UTC (08:00-18:59 Tashkent) - roughly 680 hours a
-# month for both services, leaving headroom for evening use, at the cost of
-# one cold start for the first visitor outside those hours.
+# Why not 24/7 for everything: the free tier includes 750 instance-hours a
+# month POOLED across every service on the account. Both services awake
+# around the clock would need ~1,440 hours and get things suspended mid-
+# month - worse than any cold start. So this splits the budget unevenly on
+# purpose:
+#   - Backend, direct (sanad-qpbo.onrender.com): 16h/day, 06:00-22:00
+#     Tashkent (01:00-16:59 UTC) -> ~496 hours/month.
+#   - Frontend, direct (frontend-bnun.onrender.com): 6h/day, nested inside
+#     the backend window at 10:00-16:00 Tashkent (05:00-10:59 UTC), covering
+#     the part of the day most likely to have real visitors -> ~186
+#     hours/month.
+#   - Total ~682 hours/month, leaving ~68 hours of headroom under the 750
+#     cap for redeploys and anything else on the account.
+# Outside 22:00-06:00 Tashkent, both services are free to sleep - lowest-
+# traffic hours, and the one place a real cold start is still expected.
 name: keep-alive
 
 on:
   schedule:
-    - cron: "*/10 3-13 * * *"
+    - cron: "*/10 1-16 * * *"
   workflow_dispatch:
 
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping app (frontend -> backend via /api proxy)
+      - name: Ping backend directly, and frontend during its narrower peak window
         run: |
-          curl -sS --max-time 90 -o /dev/null -w "frontend+backend: %{http_code} in %{time_total}s\n" \
-            https://frontend-bnun.onrender.com/api/health || true
+          curl -sS --max-time 90 -o /dev/null -w "backend: %{http_code} in %{time_total}s\n" \
+            https://sanad-qpbo.onrender.com/api/health || true
+
+          hour=$(date -u +%-H)
+          if [ "$hour" -ge 5 ] && [ "$hour" -le 10 ]; then
+            curl -sS --max-time 90 -o /dev/null -w "frontend: %{http_code} in %{time_total}s\n" \
+              https://frontend-bnun.onrender.com/api/health || true
+          fi
