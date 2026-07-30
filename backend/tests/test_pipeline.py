@@ -39,7 +39,7 @@ async def test_process_document_success():
         document = Document(
             user_id=user_id,
             original_filename="passport.png",
-            stored_filename="stored.png",
+            file_content=b"fake image bytes",
             mime_type="image/png",
             file_size=10,
         )
@@ -89,7 +89,7 @@ async def test_process_document_never_holds_one_session_across_the_ocr_and_ai_ca
         document = Document(
             user_id=user_id,
             original_filename="passport.png",
-            stored_filename="stored.png",
+            file_content=b"fake image bytes",
             mime_type="image/png",
             file_size=10,
         )
@@ -131,7 +131,7 @@ async def test_process_document_marks_error_on_empty_ocr():
         document = Document(
             user_id=user_id,
             original_filename="blank.png",
-            stored_filename="blank.png",
+            file_content=b"fake image bytes",
             mime_type="image/png",
             file_size=10,
         )
@@ -160,7 +160,6 @@ async def test_process_document_skips_ocr_when_text_already_saved():
         document = Document(
             user_id=user_id,
             original_filename="resumed.png",
-            stored_filename="resumed.png",
             mime_type="image/png",
             file_size=10,
             status=DocumentStatus.PROCESSING,
@@ -209,7 +208,7 @@ async def test_process_document_marks_error_on_timeout(monkeypatch):
         document = Document(
             user_id=user_id,
             original_filename="slow.png",
-            stored_filename="slow.png",
+            file_content=b"fake image bytes",
             mime_type="image/png",
             file_size=10,
         )
@@ -238,7 +237,7 @@ async def test_request_cancel_stops_a_running_task_and_marks_it_cancelled():
         document = Document(
             user_id=user_id,
             original_filename="scan.png",
-            stored_filename="scan.png",
+            file_content=b"fake image bytes",
             mime_type="image/png",
             file_size=10,
         )
@@ -283,7 +282,7 @@ async def test_recover_stuck_documents_requeues_only_pending_and_processing():
             document = Document(
                 user_id=user_id,
                 original_filename="doc.png",
-                stored_filename=f"{uuid.uuid4()}.png",
+                file_content=b"fake image bytes",
                 mime_type="image/png",
                 file_size=10,
                 status=status,

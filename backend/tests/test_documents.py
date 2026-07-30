@@ -78,7 +78,7 @@ async def test_processing_document_gets_eta_once_history_exists(client):
             Document(
                 user_id=user.id,
                 original_filename="prior.png",
-                stored_filename=f"{uuid.uuid4()}.png",
+                file_content=b"prior",
                 mime_type="image/png",
                 file_size=10,
                 status=DocumentStatus.DONE,
