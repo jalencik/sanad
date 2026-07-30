@@ -25,6 +25,10 @@ backend/data/
 backend/test_uploads/
 *.db
 
+# Frontend build copied in here only by Dockerfile.koyeb, at image build
+# time - see app/main.py's STATIC_DIR
+backend/static/
+
 # Editor / OS
 .vscode/
 .idea/

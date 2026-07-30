@@ -1,0 +1,53 @@
+# Combined image for hosts that only offer a single free service (currently:
+# Koyeb). Builds the Vue frontend and has the backend serve it directly
+# instead of running a separate nginx container - see
+# docs/decisions/2026-07-29-hosting-alternatives.md for why. This exists
+# alongside, not instead of, backend/Dockerfile and frontend/Dockerfile,
+# which docker-compose.yml and the current Render deployment still use.
+#
+# Build context must be the repo root (it needs both frontend/ and
+# backend/), e.g.: docker build -f Dockerfile.koyeb .
+
+FROM node:20-alpine AS frontend-build
+
+WORKDIR /app/frontend
+COPY frontend/package*.json ./
+RUN npm ci
+COPY frontend/ .
+RUN npm run build
+
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        tesseract-ocr \
+        tesseract-ocr-eng \
+        tesseract-ocr-rus \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Debian doesn't package Uzbek trained data; fetch it from the official
+# tessdata_fast repository so multi-language OCR covers Uzbek documents too.
+RUN TESSDATA_DIR=$(find / -type d -name tessdata 2>/dev/null | head -n 1) \
+    && curl -sSL -o "$TESSDATA_DIR/uzb.traineddata" \
+        https://github.com/tesseract-ocr/tessdata_fast/raw/main/uzb.traineddata \
+    && curl -sSL -o "$TESSDATA_DIR/uzb_cyrl.traineddata" \
+        https://github.com/tesseract-ocr/tessdata_fast/raw/main/uzb_cyrl.traineddata
+
+WORKDIR /app
+
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY backend/app ./app
+COPY backend/alembic ./alembic
+COPY backend/alembic.ini .
+COPY --from=frontend-build /app/frontend/dist ./static
+
+RUN mkdir -p /app/uploads
+
+EXPOSE 8000
+
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]

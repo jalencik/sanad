@@ -1,8 +1,11 @@
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
@@ -71,3 +74,43 @@ app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(documents.router)
 app.include_router(admin.router)
+
+# Only populated by the combined image (Dockerfile.koyeb) - the split
+# backend/Dockerfile used by docker-compose.yml and Render never copies a
+# frontend build in, so this stays absent and every route below is simply
+# never registered there. Lets one codebase serve either shape without a
+# runtime flag.
+STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+
+if STATIC_DIR.is_dir():
+
+    class ImmutableStaticFiles(StaticFiles):
+        # Vite content-hashes every filename under /assets (index-Dp85KHLr.js),
+        # so a given path can never change contents - safe to tell the browser
+        # to skip revalidation entirely, same as nginx.conf.template did.
+        async def get_response(self, path: str, scope):
+            response = await super().get_response(path, scope)
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            return response
+
+    app.mount("/assets", ImmutableStaticFiles(directory=STATIC_DIR / "assets"), name="spa-assets")
+
+    @app.get("/{full_path:path}")
+    async def spa_fallback(full_path: str) -> FileResponse:
+        # {full_path:path} matches literally anything, including a mistyped
+        # or removed /api/* route - without this guard, a genuine 404 from
+        # the API would silently come back as a 200 of index.html instead,
+        # which is both wrong and a pain to debug from the frontend.
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404)
+
+        # Anything else that isn't a real file in the build (a Vue Router
+        # route like /documents/<id>, or a hard refresh on one) falls back
+        # to index.html and lets the SPA's own client-side router take over -
+        # index.html itself must never be cached, or a later deploy could
+        # strand a returning visitor on a stale page that references assets
+        # which no longer exist.
+        candidate = STATIC_DIR / full_path
+        if full_path and candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache"})
