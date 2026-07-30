@@ -150,6 +150,47 @@ async def test_process_document_marks_error_on_empty_ocr():
         assert refreshed.progress_percent == PROGRESS_OCR_DONE
 
 
+async def test_process_document_reports_ocr_failure_distinctly_from_ai_failure():
+    # Regression guard: an unexpected exception from OCR and one from the AI
+    # call used to collapse into the exact same generic "something went
+    # wrong" message - impossible to tell which stage actually broke without
+    # server logs. Each stage now gets its own specific, still-safe message.
+    user_id = await _create_test_user()
+
+    async def _make_document(name: str) -> uuid.UUID:
+        async with async_session_factory() as session:
+            document = Document(
+                user_id=user_id,
+                original_filename=name,
+                file_content=b"fake image bytes",
+                mime_type="image/png",
+                file_size=10,
+            )
+            session.add(document)
+            await session.commit()
+            await session.refresh(document)
+            return document.id
+
+    ocr_failure_id = await _make_document("a.png")
+    with patch("app.services.pipeline.ocr.run_ocr", side_effect=RuntimeError("tesseract exploded")):
+        await process_document(ocr_failure_id)
+
+    ai_failure_id = await _make_document("b.png")
+    with (
+        patch("app.services.pipeline.ocr.run_ocr", return_value=OcrResult(text="some text", confidence=0.9)),
+        patch("app.services.pipeline.ai.analyze_document_text", side_effect=RuntimeError("every provider down")),
+    ):
+        await process_document(ai_failure_id)
+
+    async with async_session_factory() as session:
+        ocr_failure = await session.get(Document, ocr_failure_id)
+        ai_failure = await session.get(Document, ai_failure_id)
+
+    assert "read this document" in ocr_failure.error_message
+    assert "analyze it right now" in ai_failure.error_message
+    assert ocr_failure.error_message != ai_failure.error_message
+
+
 async def test_process_document_skips_ocr_when_text_already_saved():
     # Simulates resuming a document a previous process got partway through:
     # OCR text is already on the row, so re-running OCR would waste the

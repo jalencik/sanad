@@ -205,7 +205,21 @@ async def _run_pipeline(document_id: uuid.UUID, file_content: bytes | None, mime
             raise PipelineError("This document's uploaded file is no longer available. Please re-upload it.")
 
         async with _ocr_slots:
-            ocr_result = await asyncio.to_thread(ocr.run_ocr, file_content, mime_type)
+            try:
+                ocr_result = await asyncio.to_thread(ocr.run_ocr, file_content, mime_type)
+            except Exception:
+                # Distinct from the AI-analysis failure below on purpose: the
+                # two used to collapse into one generic "something went
+                # wrong" message, which made it impossible to tell - from the
+                # user-visible result alone - which stage actually broke.
+                # The real exception is still logged in full here; only the
+                # user-facing text stays generic (never repeat back a raw
+                # file path or library error to the browser).
+                logger.exception("OCR failed for %s", document_id)
+                raise PipelineError(
+                    "We couldn't read this document. It may be corrupted, password-protected, "
+                    "or in an unsupported format - please try a different file."
+                ) from None
 
         _check_not_cancelled(document_id)
 
@@ -224,7 +238,14 @@ async def _run_pipeline(document_id: uuid.UUID, file_content: bytes | None, mime
 
     _check_not_cancelled(document_id)
 
-    analysis = await asyncio.to_thread(ai.analyze_document_text, ocr_text)
+    try:
+        analysis = await asyncio.to_thread(ai.analyze_document_text, ocr_text)
+    except Exception:
+        logger.exception("AI analysis failed for %s", document_id)
+        raise PipelineError(
+            "We read this document but couldn't analyze it right now - this is usually "
+            "temporary, please try again in a few minutes."
+        ) from None
 
     _check_not_cancelled(document_id)
 
