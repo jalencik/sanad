@@ -25,6 +25,18 @@ class OcrResult:
     confidence: float
 
 
+class PasswordProtectedError(Exception):
+    """Raised when a PDF needs a password fitz was never given one for.
+
+    Distinct from a generic OCR failure because it's not actually broken -
+    without this check, PyMuPDF just raises a bare
+    ValueError('document closed or encrypted') the moment a page is
+    rendered, indistinguishable from any other corruption. Checking
+    needs_pass upfront turns a guess ("may be password-protected... or who
+    knows") into a definite answer.
+    """
+
+
 def _iter_pdf_pages(data: bytes) -> Iterator[Image.Image]:
     # Yields one rendered page at a time rather than building a list of all
     # of them up front - an 8-page PDF at 300 DPI is easily 150-200MB of raw
@@ -32,6 +44,9 @@ def _iter_pdf_pages(data: bytes) -> Iterator[Image.Image]:
     # eligible for garbage collection as soon as the loop below moves past
     # it instead of all of them living until the whole document finishes.
     with fitz.open(stream=data, filetype="pdf") as doc:
+        if doc.needs_pass:
+            raise PasswordProtectedError("This PDF is password-protected")
+
         page_count = min(len(doc), settings.max_pdf_pages)
         for page_index in range(page_count):
             page = doc[page_index]
