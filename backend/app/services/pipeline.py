@@ -207,6 +207,14 @@ async def _run_pipeline(document_id: uuid.UUID, file_content: bytes | None, mime
         async with _ocr_slots:
             try:
                 ocr_result = await asyncio.to_thread(ocr.run_ocr, file_content, mime_type)
+            except ocr.PasswordProtectedError:
+                # Checked and known for certain (see ocr._iter_pdf_pages),
+                # not a guess bundled in with "or who knows what else" - a
+                # user who sees this can actually act on it immediately.
+                logger.info("Document %s is password-protected", document_id)
+                raise PipelineError(
+                    "This PDF is password-protected. Please remove the password and upload again."
+                ) from None
             except Exception:
                 # Distinct from the AI-analysis failure below on purpose: the
                 # two used to collapse into one generic "something went
@@ -217,8 +225,8 @@ async def _run_pipeline(document_id: uuid.UUID, file_content: bytes | None, mime
                 # file path or library error to the browser).
                 logger.exception("OCR failed for %s", document_id)
                 raise PipelineError(
-                    "We couldn't read this document. It may be corrupted, password-protected, "
-                    "or in an unsupported format - please try a different file."
+                    "We couldn't read this document. It may be corrupted or in an unsupported "
+                    "format - please try a different file."
                 ) from None
 
         _check_not_cancelled(document_id)

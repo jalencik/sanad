@@ -191,6 +191,38 @@ async def test_process_document_reports_ocr_failure_distinctly_from_ai_failure()
     assert ocr_failure.error_message != ai_failure.error_message
 
 
+async def test_process_document_reports_password_protected_pdfs_definitively():
+    # A password-protected PDF isn't corrupted or unsupported - it's a
+    # known, specific condition (see ocr.PasswordProtectedError) and the
+    # user should hear that as a fact, not as one guess among three.
+    user_id = await _create_test_user()
+
+    async with async_session_factory() as session:
+        document = Document(
+            user_id=user_id,
+            original_filename="locked.pdf",
+            file_content=b"fake pdf bytes",
+            mime_type="application/pdf",
+            file_size=10,
+        )
+        session.add(document)
+        await session.commit()
+        await session.refresh(document)
+        document_id = document.id
+
+    from app.services.ocr import PasswordProtectedError
+
+    with patch("app.services.pipeline.ocr.run_ocr", side_effect=PasswordProtectedError("needs a password")):
+        await process_document(document_id)
+
+    async with async_session_factory() as session:
+        refreshed = await session.get(Document, document_id)
+        assert refreshed.status == DocumentStatus.ERROR
+        assert refreshed.error_message == (
+            "This PDF is password-protected. Please remove the password and upload again."
+        )
+
+
 async def test_process_document_skips_ocr_when_text_already_saved():
     # Simulates resuming a document a previous process got partway through:
     # OCR text is already on the row, so re-running OCR would waste the
