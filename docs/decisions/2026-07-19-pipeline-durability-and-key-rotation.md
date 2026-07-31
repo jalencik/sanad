@@ -25,12 +25,17 @@ causes, verified by reading the actual code paths:
   by definition, if the process is just starting, no prior process can
   still legitimately own that work.
 - Cap total processing time per document so a genuine hang fails loudly and
-  visibly instead of freezing forever. Originally 5 minutes; raised to 15
-  (`PROCESS_TIMEOUT_SECONDS` in `pipeline.py`) once the math caught up with
-  it - a full multi-page PDF's own per-page OCR ceilings could legitimately
-  add up to more than 5 minutes before this cap even got involved, which
-  meant it could kill an honestly-still-working document. See the comment
-  above `PROCESS_TIMEOUT_SECONDS` for the current worst-case arithmetic.
+  visibly instead of freezing forever. Originally 5 minutes; raised to 15,
+  then to 19 (`PROCESS_TIMEOUT_SECONDS` in `pipeline.py`) each time the math
+  caught up with it - a full multi-page PDF's own per-page OCR ceilings
+  could legitimately add up to more than the cap before it even got
+  involved, which meant it could kill an honestly-still-working document.
+  See the comment above `PROCESS_TIMEOUT_SECONDS` for the current
+  worst-case arithmetic.
+- Give a Tesseract-reported per-page timeout its own honest message
+  (`ocr.OcrTimeoutError`) instead of letting it fall into the generic
+  OCR-failure bucket - "too large or complex for our current server
+  limits," not "corrupted."
 - On resume, skip OCR if `ocr_text` was already saved from a prior attempt -
   don't burn the free tier's fractional CPU redoing finished work.
 - Support up to 5 Gemini API keys via `GEMINI_API_KEYS` (comma-separated).

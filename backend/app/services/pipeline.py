@@ -36,11 +36,12 @@ _ocr_slots = asyncio.Semaphore(1)
 # This has to stay honest about the pipeline's own worst case, or it fires
 # on a document that was never actually stuck: OCR alone can legitimately
 # take up to max_pdf_pages * _PAGE_TIMEOUT_SECONDS (app/services/ocr.py) -
-# 8 * 60s = 480s today - before the AI call even starts, and that call can
+# 8 * 90s = 720s today - before the AI call even starts, and that call can
 # itself retry across every configured Groq/Gemini key (app/services/ai.py)
-# before giving up. 900s leaves real headroom above that combined worst
-# case instead of quietly assuming OCR would always be fast.
-PROCESS_TIMEOUT_SECONDS = 900
+# before giving up. 1140s preserves the same ~420s of headroom above that
+# combined worst case as before _PAGE_TIMEOUT_SECONDS was raised from 60s,
+# instead of quietly eating into it.
+PROCESS_TIMEOUT_SECONDS = 1140
 
 CANCELLED_MESSAGE = "Cancelled."
 
@@ -214,6 +215,17 @@ async def _run_pipeline(document_id: uuid.UUID, file_content: bytes | None, mime
                 logger.info("Document %s is password-protected", document_id)
                 raise PipelineError(
                     "This PDF is password-protected. Please remove the password and upload again."
+                ) from None
+            except ocr.OcrTimeoutError:
+                # Tesseract itself reported the timeout (see
+                # ocr.OcrTimeoutError) - a genuinely too-big-or-complex
+                # document, not corruption, so it gets its own honest
+                # message instead of the generic OCR-failure guess below.
+                logger.info("OCR timed out for %s", document_id)
+                raise PipelineError(
+                    "This document is too large or complex for our current server limits to "
+                    "process in time. Please try extracting text from a smaller file or a "
+                    "direct image."
                 ) from None
             except Exception:
                 # Distinct from the AI-analysis failure below on purpose: the

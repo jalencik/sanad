@@ -223,6 +223,39 @@ async def test_process_document_reports_password_protected_pdfs_definitively():
         )
 
 
+async def test_process_document_reports_ocr_timeouts_definitively():
+    # A Tesseract-reported timeout (see ocr.OcrTimeoutError) means the
+    # document is too big or complex, not corrupted - it should get its
+    # own honest message instead of the generic OCR-failure guess.
+    user_id = await _create_test_user()
+
+    async with async_session_factory() as session:
+        document = Document(
+            user_id=user_id,
+            original_filename="huge.pdf",
+            file_content=b"fake pdf bytes",
+            mime_type="application/pdf",
+            file_size=10,
+        )
+        session.add(document)
+        await session.commit()
+        await session.refresh(document)
+        document_id = document.id
+
+    from app.services.ocr import OcrTimeoutError
+
+    with patch("app.services.pipeline.ocr.run_ocr", side_effect=OcrTimeoutError("Tesseract process timeout")):
+        await process_document(document_id)
+
+    async with async_session_factory() as session:
+        refreshed = await session.get(Document, document_id)
+        assert refreshed.status == DocumentStatus.ERROR
+        assert refreshed.error_message == (
+            "This document is too large or complex for our current server limits to process "
+            "in time. Please try extracting text from a smaller file or a direct image."
+        )
+
+
 async def test_process_document_skips_ocr_when_text_already_saved():
     # Simulates resuming a document a previous process got partway through:
     # OCR text is already on the row, so re-running OCR would waste the

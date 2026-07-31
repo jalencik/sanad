@@ -16,7 +16,7 @@ settings = get_settings()
 # PROCESS_TIMEOUT_SECONDS regardless, but this releases the OS thread (and
 # frees up an _ocr_slots permit) as soon as a single page is actually stuck,
 # rather than only when the whole document times out.
-_PAGE_TIMEOUT_SECONDS = 60
+_PAGE_TIMEOUT_SECONDS = 90
 
 
 @dataclass
@@ -34,6 +34,16 @@ class PasswordProtectedError(Exception):
     rendered, indistinguishable from any other corruption. Checking
     needs_pass upfront turns a guess ("may be password-protected... or who
     knows") into a definite answer.
+    """
+
+
+class OcrTimeoutError(Exception):
+    """Raised when Tesseract itself reports it hit _PAGE_TIMEOUT_SECONDS.
+
+    pytesseract signals this as a bare RuntimeError('Tesseract process
+    timeout'), which without this translation would land in the same
+    generic bucket as a corrupted file - a page that's still working, just
+    slowly, deserves an honest "too big" message instead of "broken."
     """
 
 
@@ -86,16 +96,26 @@ def run_ocr(data: bytes, mime_type: str) -> OcrResult:
         # own subprocess with its own _PAGE_TIMEOUT_SECONDS ceiling, so two
         # calls meant a page could legitimately take up to twice as long as
         # this function's name suggests. On an 8-page PDF that pushed the
-        # worst case (8 * 2 * 60s = 960s) well past PROCESS_TIMEOUT_SECONDS
+        # worst case (8 * 2 * 90s = 1440s) well past PROCESS_TIMEOUT_SECONDS
         # in pipeline.py, which could abort an honestly-still-working job
         # as "took too long." One call halves both the CPU spent per page
         # (real money on a fractional-CPU host) and that worst case.
-        data = pytesseract.image_to_data(
-            image,
-            lang=settings.tesseract_languages,
-            output_type=pytesseract.Output.DICT,
-            timeout=_PAGE_TIMEOUT_SECONDS,
-        )
+        try:
+            data = pytesseract.image_to_data(
+                image,
+                lang=settings.tesseract_languages,
+                output_type=pytesseract.Output.DICT,
+                timeout=_PAGE_TIMEOUT_SECONDS,
+            )
+        except RuntimeError as exc:
+            # pytesseract only raises a bare RuntimeError for the
+            # subprocess-timeout path (see its timeout_manager) - every
+            # other engine failure comes back as a TesseractError instead.
+            # Checking the message anyway keeps this honest rather than
+            # assuming every RuntimeError here means "timeout."
+            if "timeout" in str(exc).lower():
+                raise OcrTimeoutError(str(exc)) from exc
+            raise
         texts.append(_text_from_data(data))
 
         word_confidences = [float(c) for c in data["conf"] if float(c) >= 0]
