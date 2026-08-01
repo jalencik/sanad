@@ -67,6 +67,8 @@ export default {
     upload: {
       dragHint: 'Hujjatni shu yerga tashlang yoki',
       browseLink: "fayllaringizni ko'ring",
+      takePhoto: 'Suratga olish',
+      chooseFile: 'Fayl tanlash',
       fileHint: 'PDF, PNG, JPEG, TIFF yoki WEBP — 25 MB gacha',
       unsupportedTitle: "Fayl turi qo'llab-quvvatlanmaydi",
       unsupportedBody: 'PDF, PNG, JPEG, TIFF yoki WEBP faylini yuklang.',
@@ -88,6 +90,7 @@ export default {
     },
     details: {
       emptyState: 'Tafsilotlarni ko‘rish uchun chapdan hujjatni tanlang.',
+      backToList: 'Hujjatlar',
       analyzing: "Hujjat o'qilib, tahlil qilinmoqda…",
       analyzingHint: 'OCR va AI tahlili odatda har bir sahifa uchun bir necha soniya vaqt oladi.',
       timeRemaining: '~{time} qoldi',

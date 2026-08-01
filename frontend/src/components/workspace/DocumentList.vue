@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import { Search } from '@lucide/vue'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Input } from '@/components/ui/input'
@@ -8,6 +9,7 @@ import DocumentRow from './DocumentRow.vue'
 import { useDocumentsStore } from '@/stores/documents'
 
 const store = useDocumentsStore()
+const router = useRouter()
 const { t } = useI18n()
 const query = ref('')
 
@@ -17,8 +19,11 @@ const filtered = computed(() => {
   return store.documents.filter((doc) => doc.original_filename.toLowerCase().includes(q))
 })
 
+// Navigate rather than mutate: WorkspaceView's route watcher performs the
+// actual selection, which keeps one code path for opening a document whether
+// it came from a tap, a shared link, or the back button.
 function select(id: string) {
-  store.selectDocument(id)
+  router.push({ name: 'workspace', params: { id } })
 }
 </script>
 
@@ -27,7 +32,14 @@ function select(id: string) {
     <div class="px-4 pb-3">
       <div class="relative">
         <Search class="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-        <Input v-model="query" :placeholder="t('workspace.list.searchPlaceholder')" class="pl-8" />
+        <!-- h-11 clears the 44px minimum touch target on phones; desktop keeps
+             the original 32px. The base Input is already text-base below md,
+             which is what stops iOS Safari zooming the page on focus. -->
+        <Input
+          v-model="query"
+          :placeholder="t('workspace.list.searchPlaceholder')"
+          class="h-11 pl-8 md:h-8"
+        />
       </div>
     </div>
 
@@ -55,6 +67,10 @@ function select(id: string) {
         :selected="doc.id === store.selectedId"
         @select="select(doc.id)"
       />
+
+      <!-- Keeps the final row clear of the iOS home indicator, which overlays
+           the bottom of the screen now that we render edge-to-edge. -->
+      <div class="pb-safe md:hidden" aria-hidden="true" />
     </ScrollArea>
   </div>
 </template>

@@ -118,6 +118,26 @@
     --ring: oklch(0.7 0.12 70);
 }
 
+/*
+ * Safe-area utilities. index.html opts into viewport-fit=cover so backgrounds
+ * reach the physical screen edges; these put the *content* back inside the
+ * usable area. env() resolves to 0px on every device without a notch or home
+ * indicator, so applying them unconditionally costs nothing on Android or
+ * desktop.
+ */
+@utility pt-safe {
+    padding-top: env(safe-area-inset-top);
+}
+
+@utility pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+}
+
+@utility px-safe {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+}
+
 @layer base {
     * {
         @apply border-border outline-ring/50;
@@ -126,5 +146,23 @@
     body {
         @apply bg-background text-foreground;
         @apply font-sans;
+    }
+
+    /*
+     * Kills the legacy 300ms tap delay and, more importantly on a document
+     * app, stops an accidental double-tap on a control from zooming the page
+     * instead of firing the control twice. Scoped to interactive elements so
+     * pinch-zoom on document content is left alone - people genuinely need to
+     * zoom a scanned page.
+     */
+    button,
+    [role="button"],
+    a,
+    label,
+    select,
+    summary,
+    input,
+    textarea {
+        touch-action: manipulation;
     }
 }

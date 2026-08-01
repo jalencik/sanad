@@ -12,7 +12,12 @@ export const router = createRouter({
     { path: '/', name: 'landing', component: LandingPage },
     { path: '/sign-in', name: 'sign-in', component: SignInView },
     { path: '/sign-up', name: 'sign-up', component: SignUpView },
-    { path: '/app', name: 'workspace', component: WorkspaceView, meta: { requiresAuth: true } },
+    // The open document lives in the URL rather than in component state so
+    // that Android's back button and iOS's swipe-back gesture navigate out of
+    // a document for free, and so a reload keeps you on the one you opened.
+    // On desktop the param only drives which row is highlighted - both panes
+    // render either way.
+    { path: '/app/:id?', name: 'workspace', component: WorkspaceView, meta: { requiresAuth: true } },
     { path: '/admin', name: 'admin', component: AdminView, meta: { requiresAuth: true, requiresAdmin: true } },
   ],
   scrollBehavior() {

@@ -7,8 +7,10 @@ from PIL import Image
 
 from app.services.ocr import (
     OcrTimeoutError,
+    PageTooLargeError,
     PasswordProtectedError,
     _iter_pdf_pages,
+    _safe_pixmap,
     _text_from_data,
     run_ocr,
 )
@@ -84,3 +86,55 @@ def test_run_ocr_does_not_mistake_other_runtime_errors_for_a_timeout():
         side_effect=RuntimeError("something else entirely"),
     ), pytest.raises(RuntimeError, match="something else entirely"):
         run_ocr(_make_blank_image_bytes(), "image/png")
+
+
+# 612x792pt is US Letter - an entirely ordinary page. It's the threshold that
+# moves in the tests below, not the page: rendering a genuinely enormous page
+# to prove the guard fires would allocate the exact gigabytes it exists to
+# prevent.
+_LETTER = {"width": 612, "height": 792}
+
+# 612pt x 792pt at 300 DPI, with no back-off applied.
+_LETTER_AT_300_DPI = (2550, 3300)
+
+
+def test_safe_pixmap_renders_an_ordinary_page_untouched():
+    with fitz.open() as doc:
+        pixmap = _safe_pixmap(doc.new_page(**_LETTER), dpi=300)
+
+    assert (pixmap.width, pixmap.height) == _LETTER_AT_300_DPI
+
+
+def test_safe_pixmap_scales_a_page_down_to_stay_under_the_bomb_threshold(monkeypatch):
+    # Image.frombytes() in _iter_pdf_pages bypasses Pillow's own
+    # decompression-bomb guard, so a PDF only has to *declare* an oversized
+    # page for one upload to allocate unbounded memory and OOM the instance
+    # for everyone. A lower DPI still yields usable text, so back off first.
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 1_000_000)
+
+    with fitz.open() as doc:
+        pixmap = _safe_pixmap(doc.new_page(**_LETTER), dpi=300)
+
+    assert pixmap.width * pixmap.height <= 1_000_000
+
+
+def test_safe_pixmap_refuses_a_page_too_large_even_at_the_dpi_floor(monkeypatch):
+    # Below _MIN_RENDER_DPI the text is unreadable anyway, so shrinking
+    # further would trade a useless result for the OOM being avoided.
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 1_000)
+
+    with fitz.open() as doc:
+        page = doc.new_page(**_LETTER)
+        with pytest.raises(PageTooLargeError):
+            _safe_pixmap(page, dpi=300)
+
+
+def test_safe_pixmap_honours_a_process_wide_disabled_bomb_check(monkeypatch):
+    # Pillow treats MAX_IMAGE_PIXELS = None as "checks off"; silently
+    # re-imposing a limit here would be surprising.
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", None)
+
+    with fitz.open() as doc:
+        pixmap = _safe_pixmap(doc.new_page(**_LETTER), dpi=300)
+
+    assert (pixmap.width, pixmap.height) == _LETTER_AT_300_DPI

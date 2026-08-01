@@ -90,6 +90,13 @@ async def login(
     email = payload.email.lower()
     client_host = request.client.host if request.client else "unknown"
     check_rate_limit(f"{client_host}:{email}")
+    # The check above is per-IP-per-email, so a distributed attacker rotating
+    # source IPs gets a fresh 5-attempt allowance each time against the same
+    # target account. This second check is keyed on the email alone, with a
+    # looser cap so a real user mistyping their password repeatedly isn't
+    # punished for it, so credential-stuffing against one account is still
+    # bounded regardless of how many different IPs it comes from.
+    check_rate_limit(f"login-email:{email}", max_attempts=15, window_seconds=300.0)
 
     user = await db.scalar(select(User).where(User.email == email))
     if user is None or not verify_password(payload.password, user.hashed_password):

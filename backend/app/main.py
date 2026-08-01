@@ -26,7 +26,22 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Sanad API", version="0.1.0", lifespan=lifespan)
+# The interactive docs hand anyone a complete map of every endpoint,
+# parameter, and schema shape - useful locally, but there's no reason to also
+# hand that to the public internet once this is deployed. Requires
+# ENVIRONMENT=production to actually be set wherever this runs; the default
+# ("development", see app/core/config.py) deliberately keeps docs on so local
+# work is unaffected.
+_docs_enabled = settings.environment != "production"
+
+app = FastAPI(
+    title="Sanad API",
+    version="0.1.0",
+    lifespan=lifespan,
+    docs_url="/docs" if _docs_enabled else None,
+    redoc_url="/redoc" if _docs_enabled else None,
+    openapi_url="/openapi.json" if _docs_enabled else None,
+)
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):

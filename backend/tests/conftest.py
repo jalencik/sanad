@@ -10,7 +10,7 @@ from httpx import ASGITransport, AsyncClient  # noqa: E402
 from app.db.base import Base  # noqa: E402
 from app.db.session import engine  # noqa: E402
 from app.main import app  # noqa: E402
-from app.services import rate_limit  # noqa: E402
+from app.services import pipeline, rate_limit  # noqa: E402
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -21,6 +21,11 @@ async def _prepare_database():
     # peer IP, so every signup call collides on "signup:unknown") trip each
     # other's limits depending on run order.
     rate_limit.reset()
+    # Same idea for the OCR permit: it's a module-level asyncio.Semaphore, and
+    # asyncio binds one to the loop that first waits on it. Each test runs on
+    # a fresh loop, so any test where two documents genuinely contend would
+    # otherwise leave it bound to a loop later tests no longer have.
+    pipeline.reset_ocr_slots()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield

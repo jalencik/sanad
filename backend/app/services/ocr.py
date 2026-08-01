@@ -47,6 +47,53 @@ class OcrTimeoutError(Exception):
     """
 
 
+class PageTooLargeError(Exception):
+    """Raised when a PDF page declares dimensions too large to rasterize
+    safely even after backing the render resolution off (see _safe_pixmap).
+
+    Its own type, like the two above, so the pipeline can give this an
+    honest "this page is too big" message rather than filing a perfectly
+    intact file under "may be corrupted."
+    """
+
+
+# Floor for the automatic DPI back-off below. Text rendered under ~20 DPI is
+# not realistically recoverable by Tesseract anyway, so continuing to shrink
+# past this trades a useless result for the OOM we're trying to avoid; at that
+# point refusing outright is the more honest outcome.
+_MIN_RENDER_DPI = 20
+
+
+def _safe_pixmap(page: fitz.Page, dpi: int) -> fitz.Pixmap:
+    # get_pixmap builds the bitmap straight from raw decoded bytes, and the
+    # Image.frombytes() in _iter_pdf_pages skips Pillow's own Image.open()
+    # decompression-bomb guard entirely - a PDF that simply declares an
+    # oversized page (no exotic exploit needed, just a large MediaBox) would
+    # otherwise let one upload allocate gigabytes and OOM the whole free-tier
+    # instance for every user, not just the uploader. Reusing Pillow's own
+    # MAX_IMAGE_PIXELS threshold keeps this consistent with the bomb
+    # protection ordinary image uploads already get for free via Image.open()
+    # in _iter_images.
+    limit = Image.MAX_IMAGE_PIXELS
+    if limit is None:  # bomb check explicitly disabled process-wide
+        return page.get_pixmap(dpi=dpi)
+
+    scale = dpi / 72
+    estimated_pixels = (page.rect.width * scale) * (page.rect.height * scale)
+    if estimated_pixels > limit:
+        safe_scale = (limit / estimated_pixels) ** 0.5
+        dpi = max(int(dpi * safe_scale), _MIN_RENDER_DPI)
+        # A page can declare dimensions large enough that even the DPI floor
+        # above still exceeds the cap - rendering that anyway is exactly what
+        # this function exists to prevent, so refuse instead of silently
+        # allocating it.
+        scale = dpi / 72
+        if (page.rect.width * scale) * (page.rect.height * scale) > limit:
+            raise PageTooLargeError("PDF page dimensions are too large to render safely")
+
+    return page.get_pixmap(dpi=dpi)
+
+
 def _iter_pdf_pages(data: bytes) -> Iterator[Image.Image]:
     # Yields one rendered page at a time rather than building a list of all
     # of them up front - an 8-page PDF at 300 DPI is easily 150-200MB of raw
@@ -60,7 +107,7 @@ def _iter_pdf_pages(data: bytes) -> Iterator[Image.Image]:
         page_count = min(len(doc), settings.max_pdf_pages)
         for page_index in range(page_count):
             page = doc[page_index]
-            pixmap = page.get_pixmap(dpi=300)
+            pixmap = _safe_pixmap(page, dpi=300)
             yield Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
 
 
