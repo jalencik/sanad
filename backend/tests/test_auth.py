@@ -1,3 +1,8 @@
+from httpx import ASGITransport, AsyncClient
+
+from app.main import app
+
+
 async def test_signup_creates_account_and_session(anon_client):
     response = await anon_client.post(
         "/api/auth/signup",
@@ -68,6 +73,33 @@ async def test_signup_rate_limited_after_repeated_attempts(anon_client):
         json={"email": "limit-extra@example.com", "password": "correct-horse-battery", "full_name": "User"},
     )
     assert response.status_code == 429
+
+
+async def test_login_is_rate_limited_per_email_even_across_many_source_ips(anon_client):
+    # The primary login limit is keyed per-IP-per-email, so an attacker
+    # rotating source addresses gets a fresh 5-attempt allowance against the
+    # same account every time they change IP. A second limit keyed on the
+    # email alone bounds credential-stuffing no matter where it comes from.
+    email = "stuffing-target@example.com"
+    await anon_client.post(
+        "/api/auth/signup",
+        json={"email": email, "password": "correct-horse-battery", "full_name": "Target"},
+    )
+
+    statuses: list[int] = []
+    # Four attempts per IP stays under the five-attempt per-IP-per-email cap,
+    # so anything that trips here is necessarily the email-keyed limit.
+    for octet in range(4):
+        transport = ASGITransport(app=app, client=(f"203.0.113.{octet}", 40000 + octet))
+        async with AsyncClient(transport=transport, base_url="http://test") as attacker:
+            for _ in range(4):
+                response = await attacker.post(
+                    "/api/auth/login", json={"email": email, "password": "wrong-password"}
+                )
+                statuses.append(response.status_code)
+
+    assert statuses[:15] == [401] * 15, "per-IP limit fired early; this no longer tests the email limit"
+    assert statuses[15] == 429
 
 
 async def test_me_requires_authentication(anon_client):

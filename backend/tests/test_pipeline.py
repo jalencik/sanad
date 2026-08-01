@@ -307,7 +307,7 @@ def _slow_ocr(*args, **kwargs) -> OcrResult:
 async def test_process_document_marks_error_on_timeout(monkeypatch):
     # A hung OCR/network call must fail loudly instead of holding its slot
     # (and the user's progress bar) forever.
-    monkeypatch.setattr(pipeline, "PROCESS_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(pipeline, "OCR_TIMEOUT_SECONDS", 0.05)
 
     user_id = await _create_test_user()
     async with async_session_factory() as session:
@@ -330,6 +330,96 @@ async def test_process_document_marks_error_on_timeout(monkeypatch):
         refreshed = await session.get(Document, document_id)
         assert refreshed.status == DocumentStatus.ERROR
         assert "too long" in refreshed.error_message.lower()
+
+
+async def _create_pending_document(user_id: uuid.UUID, name: str) -> uuid.UUID:
+    async with async_session_factory() as session:
+        document = Document(
+            user_id=user_id,
+            original_filename=name,
+            file_content=b"fake image bytes",
+            mime_type="image/png",
+            file_size=10,
+        )
+        session.add(document)
+        await session.commit()
+        await session.refresh(document)
+        return document.id
+
+
+def _ocr_taking(seconds: float):
+    def _run(*args, **kwargs) -> OcrResult:
+        time.sleep(seconds)
+        return OcrResult(text="text", confidence=0.9)
+
+    return _run
+
+
+async def test_time_spent_queued_is_not_charged_to_a_document_s_own_timeout(monkeypatch):
+    # Regression guard for the queueing bug: _ocr_slots holds a single permit,
+    # so a second upload waits for the first to finish OCR. That wait used to
+    # sit inside the second document's own timeout, so a burst of uploads
+    # could fail a document as "took too long" that had never been given a
+    # chance to start - and skew its ETA by the same amount.
+    #
+    # Deliberately sized so the two behaviours disagree: each OCR call fits
+    # inside the cap comfortably on its own, but the second document's queue
+    # wait *plus* its own work does not. If the cap ever starts counting queue
+    # time again, the second document errors and this test fails.
+    monkeypatch.setattr(pipeline, "OCR_TIMEOUT_SECONDS", 0.5)
+
+    user_id = await _create_test_user()
+    first_id = await _create_pending_document(user_id, "first.png")
+    second_id = await _create_pending_document(user_id, "second.png")
+
+    fake_analysis = DocumentAnalysis(
+        document_type="passport",
+        document_number=None,
+        issuing_authority=None,
+        issue_date=None,
+        expiry_date=None,
+        detected_language="Uzbek",
+        key_fields=[],
+        summary_original="Original summary.",
+        summary_english="English summary.",
+    )
+
+    with (
+        patch("app.services.pipeline.ocr.run_ocr", side_effect=_ocr_taking(0.3)),
+        patch("app.services.pipeline.ai.analyze_document_text", return_value=fake_analysis),
+    ):
+        await asyncio.gather(process_document(first_id), process_document(second_id))
+
+    async with async_session_factory() as session:
+        for document_id in (first_id, second_id):
+            refreshed = await session.get(Document, document_id)
+            assert refreshed.status == DocumentStatus.DONE, refreshed.error_message
+
+
+async def test_a_queued_document_only_starts_its_clock_once_it_holds_a_permit():
+    # processing_started_at drives the user-visible ETA. A document still
+    # waiting for an OCR permit hasn't started anything, so stamping it on the
+    # way into the queue made the ETA count time the document never used.
+    user_id = await _create_test_user()
+    first_id = await _create_pending_document(user_id, "first.png")
+    second_id = await _create_pending_document(user_id, "second.png")
+
+    with (
+        patch("app.services.pipeline.ocr.run_ocr", side_effect=_ocr_taking(0.3)),
+        patch("app.services.pipeline.ai.analyze_document_text", side_effect=RuntimeError("stop here")),
+    ):
+        await asyncio.gather(process_document(first_id), process_document(second_id))
+
+    async with async_session_factory() as session:
+        first = await session.get(Document, first_id)
+        second = await session.get(Document, second_id)
+
+    # Whichever of the two won the permit is up to the scheduler, so compare
+    # the gap rather than the order. The point is that the loser was stamped
+    # as started only after the winner's OCR finished: stamping on the way
+    # into the queue instead put both within microseconds of each other.
+    gap = abs((second.processing_started_at - first.processing_started_at).total_seconds())
+    assert gap >= 0.2, "both documents were marked as started while one was still queued"
 
 
 async def test_request_cancel_returns_false_when_nothing_is_running():
