@@ -76,6 +76,16 @@ class Settings(BaseSettings):
     tesseract_languages: str = "eng+rus+uzb+uzb_cyrl"
     max_pdf_pages: int = 8
 
+    # How many documents can be actively in flight through the pipeline at
+    # once (app/services/pipeline.py's _pipeline_slots) - the cap that stops
+    # a startup recovery burst (every stuck document resumed at once) from
+    # loading all of their files into memory simultaneously and OOMing a
+    # memory-constrained host. An env var rather than a hardcoded constant
+    # specifically so this can be tightened (e.g. to 1) with a restart, not
+    # a code deploy, if 2 still isn't safe on a given host's actual memory
+    # budget - deliberately a conservative default, not a measured one.
+    pipeline_concurrency: int = 2
+
     cors_origins: list[str] = [
         "http://localhost:5173",
         "http://localhost:8080",

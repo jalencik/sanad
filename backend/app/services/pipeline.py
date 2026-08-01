@@ -5,11 +5,13 @@ from datetime import UTC, datetime
 
 from sqlalchemy import select
 
+from app.core.config import get_settings
 from app.db.session import async_session_factory
 from app.models.document import Document, DocumentStatus
 from app.services import ai, ocr
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 # Real pipeline checkpoints, not a time-based estimate: each number is set
 # the instant that stage actually finishes, so the percentage a user sees
@@ -41,10 +43,11 @@ _ocr_slots = asyncio.Semaphore(1)
 # _ocr_slots (which still exists to keep the CPU-heavy rendering/Tesseract
 # step serialized) so a document waiting on the AI provider doesn't need to
 # fully block another's OCR - this only caps the total number resident at
-# once. 2 is a conservative starting point, not a measured one - there's no
-# live memory profiling for this deployment yet; tighten or loosen it once
-# there is.
-_PIPELINE_CONCURRENCY = 2
+# once. Sourced from settings (PIPELINE_CONCURRENCY) rather than hardcoded -
+# see Settings.pipeline_concurrency - so this can be tightened with a
+# restart, not a code deploy, if the default isn't safe on a given host's
+# actual memory budget.
+_PIPELINE_CONCURRENCY = settings.pipeline_concurrency
 _pipeline_slots = asyncio.Semaphore(_PIPELINE_CONCURRENCY)
 
 
