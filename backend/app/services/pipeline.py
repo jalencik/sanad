@@ -29,8 +29,27 @@ PROGRESS_COMPLETE = 100
 _ocr_slots = asyncio.Semaphore(1)
 
 
+# Bounds how many documents can be actively in flight through _run_pipeline
+# at once - not just during OCR. Without this, nothing stops every document
+# recover_stuck_documents() resumes on startup from running at once: a
+# document that already has OCR text skips _ocr_slots entirely and loads its
+# full original file straight into memory for the analysis step, so a
+# restart with several stuck documents loads all of their files in parallel,
+# with no limit. On a memory-constrained host, that burst is enough to OOM
+# the process again right after it restarts - which restarts it again,
+# straight into the same burst. Kept as its own, separate semaphore from
+# _ocr_slots (which still exists to keep the CPU-heavy rendering/Tesseract
+# step serialized) so a document waiting on the AI provider doesn't need to
+# fully block another's OCR - this only caps the total number resident at
+# once. 2 is a conservative starting point, not a measured one - there's no
+# live memory profiling for this deployment yet; tighten or loosen it once
+# there is.
+_PIPELINE_CONCURRENCY = 2
+_pipeline_slots = asyncio.Semaphore(_PIPELINE_CONCURRENCY)
+
+
 def reset_ocr_slots() -> None:
-    """Rebind the OCR permit to the current event loop.
+    """Rebind the OCR and pipeline permits to the current event loop.
 
     Test isolation only - never called in app code, which runs one long-lived
     loop. asyncio.Semaphore binds itself to a loop the first time a caller
@@ -38,8 +57,9 @@ def reset_ocr_slots() -> None:
     this the first test that makes two documents contend leaves the permit
     bound to a loop that no later test still has.
     """
-    global _ocr_slots
+    global _ocr_slots, _pipeline_slots
     _ocr_slots = asyncio.Semaphore(1)
+    _pipeline_slots = asyncio.Semaphore(_PIPELINE_CONCURRENCY)
 
 # A stage should never legitimately take longer than its budget here. Without
 # a cap, a hung OCR call or a stalled network connection to the AI provider
@@ -154,6 +174,26 @@ async def _mark_processing(document_id: uuid.UUID) -> tuple[bytes | None, str, s
         return document.file_content, document.mime_type, document.ocr_text
 
 
+async def _mark_processing_for_analysis(document_id: uuid.UUID) -> str | None:
+    """Same status/progress/timestamp bookkeeping as _mark_processing, for a
+    resumed document that already has OCR text and is going straight to
+    analysis. Returns only ocr_text - not file_content/mime_type, which this
+    path never uses - so the caller's stack frame never ends up holding a
+    reference to the document's full original file for the whole AI call.
+    Returns None if the document no longer exists."""
+    async with async_session_factory() as session:
+        document = await session.get(Document, document_id)
+        if document is None:
+            return None
+
+        document.status = DocumentStatus.PROCESSING
+        document.progress_percent = PROGRESS_QUEUED
+        document.processing_started_at = datetime.now(UTC)
+        await session.commit()
+
+        return document.ocr_text
+
+
 async def _mark_done(document_id: uuid.UUID, analysis: ai.DocumentAnalysis) -> None:
     async with async_session_factory() as session:
         document = await session.get(Document, document_id)
@@ -239,128 +279,158 @@ async def _run_pipeline(document_id: uuid.UUID, needs_ocr: bool) -> None:
     # against this one. The permit is also released as soon as OCR is done
     # rather than being held through analysis, so a document waiting on the AI
     # provider's network round-trips doesn't block another document's OCR.
-    ocr_text: str | None = None
+    #
+    # _pipeline_slots wraps the entire function, before either branch below:
+    # it's the one thing bounding how many documents - queued via a normal
+    # upload burst, or all resumed at once by recover_stuck_documents() on
+    # restart - can be holding their full file bytes in memory at the same
+    # time. _ocr_slots is a second, tighter cap nested inside it, just for
+    # the CPU-bound rendering step.
+    async with _pipeline_slots:
+        ocr_text: str | None = None
 
-    if needs_ocr:
-        async with _ocr_slots:
-            # Marked only now that this document can genuinely make progress -
-            # this is what sets processing_started_at, which drives both the
-            # user's ETA and the "Analyzing" state, neither of which should
-            # start ticking while it was still queued.
+        if needs_ocr:
+            async with _ocr_slots:
+                # Marked only now that this document can genuinely make
+                # progress - this is what sets processing_started_at, which
+                # drives both the user's ETA and the "Analyzing" state,
+                # neither of which should start ticking while it was still
+                # queued (behind _pipeline_slots or _ocr_slots).
+                _check_not_cancelled(document_id)
+                started = await _mark_processing(document_id)
+                if started is None:  # deleted while queued
+                    return
+                file_content, mime_type, ocr_text = started
+
+                if file_content is None:
+                    # Only possible for a document uploaded before file bytes
+                    # moved into the documents table (see the model + 0006
+                    # migration) - its on-disk file is gone for good on a host
+                    # with no persistent disk. A clear, specific failure here
+                    # beats letting this reach OCR and blow up as an
+                    # unhandled FileNotFoundError.
+                    raise PipelineError(
+                        "This document's uploaded file is no longer available. Please re-upload it."
+                    )
+
+                try:
+                    ocr_result = await asyncio.wait_for(
+                        asyncio.to_thread(ocr.run_ocr, file_content, mime_type),
+                        timeout=OCR_TIMEOUT_SECONDS,
+                    )
+                except ocr.PasswordProtectedError:
+                    # Checked and known for certain (see ocr._iter_pdf_pages),
+                    # not a guess bundled in with "or who knows what else" - a
+                    # user who sees this can actually act on it immediately.
+                    logger.info("Document %s is password-protected", document_id)
+                    raise PipelineError(
+                        "This PDF is password-protected. Please remove the password and upload again."
+                    ) from None
+                except ocr.PageTooLargeError:
+                    # The file is intact - it just declares a page too large
+                    # to rasterize without putting the whole instance at risk
+                    # (see ocr._safe_pixmap). Saying "corrupted" here would
+                    # send the user off fixing a file that isn't broken.
+                    logger.warning("Document %s has an unrenderably large page", document_id)
+                    raise PipelineError(
+                        "One of this document's pages is too large for us to process. Please try "
+                        "a version with smaller page dimensions."
+                    ) from None
+                except ocr.OcrTimeoutError:
+                    # Tesseract itself reported the timeout (see
+                    # ocr.OcrTimeoutError) - a genuinely too-big-or-complex
+                    # document, not corruption, so it gets its own honest
+                    # message instead of the generic OCR-failure guess below.
+                    logger.info("OCR timed out for %s", document_id)
+                    raise PipelineError(
+                        "This document is too large or complex for our current server limits to "
+                        "process in time. Please try extracting text from a smaller file or a "
+                        "direct image."
+                    ) from None
+                except asyncio.TimeoutError:
+                    # Our OCR_TIMEOUT_SECONDS cap, not Tesseract's own
+                    # per-page one. Re-raised untouched so process_document
+                    # maps it to the honest "took too long" message -
+                    # asyncio.TimeoutError is a plain Exception subclass, so
+                    # without this it would be swallowed by the generic OCR
+                    # handler below and reported as an unreadable file
+                    # instead.
+                    raise
+                except Exception:
+                    # Distinct from the AI-analysis failure below on purpose:
+                    # the two used to collapse into one generic "something
+                    # went wrong" message, which made it impossible to tell -
+                    # from the user-visible result alone - which stage
+                    # actually broke. The real exception is still logged in
+                    # full here; only the user-facing text stays generic
+                    # (never repeat back a raw file path or library error to
+                    # the browser).
+                    logger.exception("OCR failed for %s", document_id)
+                    raise PipelineError(
+                        "We couldn't read this document. It may be corrupted or in an unsupported "
+                        "format - please try a different file."
+                    ) from None
+                finally:
+                    # The rendered page bitmap is already gone once run_ocr
+                    # returns, but the ORIGINAL FILE BYTES (up to
+                    # max_upload_size_mb) are still referenced by this local
+                    # variable, and this frame stays alive through the AI
+                    # call below - dropping the reference here, the moment
+                    # OCR is done with it, is what actually frees that
+                    # memory rather than just leaving it dead weight for
+                    # however long the AI provider call takes.
+                    file_content = None
+
             _check_not_cancelled(document_id)
-            started = await _mark_processing(document_id)
-            if started is None:  # deleted while queued
+
+            ocr_text = ocr_result.text
+            async with async_session_factory() as session:
+                document = await session.get(Document, document_id)
+                if document is None:  # deleted mid-processing
+                    return
+                document.ocr_text = ocr_result.text
+                document.ocr_confidence = ocr_result.confidence
+                document.progress_percent = PROGRESS_OCR_DONE
+                await session.commit()
+        else:
+            # A resumed document that already has OCR text goes straight to
+            # analysis, so it never competes for an OCR permit it doesn't
+            # need - queueing it behind documents that do would delay it for
+            # nothing. _mark_processing_for_analysis (unlike _mark_processing)
+            # never loads this document's file bytes at all, since this path
+            # has no use for them.
+            # None only ever means "deleted while queued" here: this branch
+            # only runs when needs_ocr was already False, i.e. ocr_text was
+            # confirmed non-null moments ago in process_document, and nothing
+            # in this pipeline ever clears it back to null once set.
+            ocr_text = await _mark_processing_for_analysis(document_id)
+            if ocr_text is None:
                 return
-            file_content, mime_type, ocr_text = started
 
-            if file_content is None:
-                # Only possible for a document uploaded before file bytes moved
-                # into the documents table (see the model + 0006 migration) -
-                # its on-disk file is gone for good on a host with no
-                # persistent disk. A clear, specific failure here beats letting
-                # this reach OCR and blow up as an unhandled FileNotFoundError.
-                raise PipelineError("This document's uploaded file is no longer available. Please re-upload it.")
-
-            try:
-                ocr_result = await asyncio.wait_for(
-                    asyncio.to_thread(ocr.run_ocr, file_content, mime_type),
-                    timeout=OCR_TIMEOUT_SECONDS,
-                )
-            except ocr.PasswordProtectedError:
-                # Checked and known for certain (see ocr._iter_pdf_pages),
-                # not a guess bundled in with "or who knows what else" - a
-                # user who sees this can actually act on it immediately.
-                logger.info("Document %s is password-protected", document_id)
-                raise PipelineError(
-                    "This PDF is password-protected. Please remove the password and upload again."
-                ) from None
-            except ocr.PageTooLargeError:
-                # The file is intact - it just declares a page too large to
-                # rasterize without putting the whole instance at risk (see
-                # ocr._safe_pixmap). Saying "corrupted" here would send the
-                # user off fixing a file that isn't broken.
-                logger.warning("Document %s has an unrenderably large page", document_id)
-                raise PipelineError(
-                    "One of this document's pages is too large for us to process. Please try "
-                    "a version with smaller page dimensions."
-                ) from None
-            except ocr.OcrTimeoutError:
-                # Tesseract itself reported the timeout (see
-                # ocr.OcrTimeoutError) - a genuinely too-big-or-complex
-                # document, not corruption, so it gets its own honest
-                # message instead of the generic OCR-failure guess below.
-                logger.info("OCR timed out for %s", document_id)
-                raise PipelineError(
-                    "This document is too large or complex for our current server limits to "
-                    "process in time. Please try extracting text from a smaller file or a "
-                    "direct image."
-                ) from None
-            except asyncio.TimeoutError:
-                # Our OCR_TIMEOUT_SECONDS cap, not Tesseract's own per-page
-                # one. Re-raised untouched so process_document maps it to the
-                # honest "took too long" message - asyncio.TimeoutError is a
-                # plain Exception subclass, so without this it would be
-                # swallowed by the generic OCR handler below and reported as
-                # an unreadable file instead.
-                raise
-            except Exception:
-                # Distinct from the AI-analysis failure below on purpose: the
-                # two used to collapse into one generic "something went
-                # wrong" message, which made it impossible to tell - from the
-                # user-visible result alone - which stage actually broke.
-                # The real exception is still logged in full here; only the
-                # user-facing text stays generic (never repeat back a raw
-                # file path or library error to the browser).
-                logger.exception("OCR failed for %s", document_id)
-                raise PipelineError(
-                    "We couldn't read this document. It may be corrupted or in an unsupported "
-                    "format - please try a different file."
-                ) from None
+        if ocr_text is None or not ocr_text.strip():
+            raise PipelineError("No text could be extracted from this document")
 
         _check_not_cancelled(document_id)
 
-        ocr_text = ocr_result.text
-        async with async_session_factory() as session:
-            document = await session.get(Document, document_id)
-            if document is None:  # deleted mid-processing
-                return
-            document.ocr_text = ocr_result.text
-            document.ocr_confidence = ocr_result.confidence
-            document.progress_percent = PROGRESS_OCR_DONE
-            await session.commit()
-    else:
-        # A resumed document that already has OCR text goes straight to
-        # analysis, so it never competes for an OCR permit it doesn't need -
-        # queueing it behind documents that do would delay it for nothing.
-        started = await _mark_processing(document_id)
-        if started is None:  # deleted before processing resumed
-            return
-        ocr_text = started[2]
+        try:
+            analysis = await asyncio.wait_for(
+                asyncio.to_thread(ai.analyze_document_text, ocr_text),
+                timeout=ANALYSIS_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            # Same reasoning as the OCR stage: let process_document report
+            # this as a timeout rather than as an analysis failure.
+            raise
+        except Exception:
+            logger.exception("AI analysis failed for %s", document_id)
+            raise PipelineError(
+                "We read this document but couldn't analyze it right now - this is usually "
+                "temporary, please try again in a few minutes."
+            ) from None
 
-    if ocr_text is None or not ocr_text.strip():
-        raise PipelineError("No text could be extracted from this document")
+        _check_not_cancelled(document_id)
 
-    _check_not_cancelled(document_id)
-
-    try:
-        analysis = await asyncio.wait_for(
-            asyncio.to_thread(ai.analyze_document_text, ocr_text),
-            timeout=ANALYSIS_TIMEOUT_SECONDS,
-        )
-    except asyncio.TimeoutError:
-        # Same reasoning as the OCR stage: let process_document report this
-        # as a timeout rather than as an analysis failure.
-        raise
-    except Exception:
-        logger.exception("AI analysis failed for %s", document_id)
-        raise PipelineError(
-            "We read this document but couldn't analyze it right now - this is usually "
-            "temporary, please try again in a few minutes."
-        ) from None
-
-    _check_not_cancelled(document_id)
-
-    await _mark_done(document_id, analysis)
+        await _mark_done(document_id, analysis)
 
 
 async def recover_stuck_documents() -> list[asyncio.Task[None]]:

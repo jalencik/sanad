@@ -1,4 +1,5 @@
 import asyncio
+import threading
 import time
 import uuid
 from unittest.mock import patch
@@ -420,6 +421,60 @@ async def test_a_queued_document_only_starts_its_clock_once_it_holds_a_permit():
     # into the queue instead put both within microseconds of each other.
     gap = abs((second.processing_started_at - first.processing_started_at).total_seconds())
     assert gap >= 0.2, "both documents were marked as started while one was still queued"
+
+
+async def test_pipeline_concurrency_is_capped_even_when_many_documents_are_resumed_at_once():
+    # Regression guard: recover_stuck_documents() (called on every server
+    # restart) spawns every stuck document at once with no limit. A document
+    # that already has OCR text skips _ocr_slots entirely and goes straight
+    # to _mark_processing, which loads that document's full original file
+    # into memory - with nothing bounding this path, a restart with several
+    # stuck documents loads all of their files into memory simultaneously.
+    # On a memory-constrained host that's exactly the kind of burst that can
+    # OOM-crash the process, which then crash-loops: restart -> resume-burst
+    # -> OOM -> restart -> ... _pipeline_slots bounds how many documents can
+    # be actively in flight (holding file bytes / mid-analysis) at once,
+    # independent of which stage they're in.
+    user_id = await _create_test_user()
+    document_ids = []
+    for i in range(5):
+        doc_id = await _create_pending_document(user_id, f"resume-{i}.png")
+        async with async_session_factory() as session:
+            document = await session.get(Document, doc_id)
+            document.ocr_text = "already extracted text"
+            await session.commit()
+        document_ids.append(doc_id)
+
+    fake_analysis = DocumentAnalysis(
+        document_type="passport", detected_language="Uzbek", summary_original="s", summary_english="s"
+    )
+
+    concurrent = 0
+    peak_concurrent = 0
+    lock = threading.Lock()
+
+    def _tracking_analyze(ocr_text: str) -> DocumentAnalysis:
+        nonlocal concurrent, peak_concurrent
+        with lock:
+            concurrent += 1
+            peak_concurrent = max(peak_concurrent, concurrent)
+        time.sleep(0.2)
+        with lock:
+            concurrent -= 1
+        return fake_analysis
+
+    with patch("app.services.pipeline.ai.analyze_document_text", side_effect=_tracking_analyze):
+        await asyncio.gather(*(process_document(doc_id) for doc_id in document_ids))
+
+    assert peak_concurrent <= pipeline._PIPELINE_CONCURRENCY, (
+        f"peak concurrent documents in flight was {peak_concurrent}, "
+        f"expected at most {pipeline._PIPELINE_CONCURRENCY}"
+    )
+
+    async with async_session_factory() as session:
+        for doc_id in document_ids:
+            refreshed = await session.get(Document, doc_id)
+            assert refreshed.status == DocumentStatus.DONE
 
 
 async def test_request_cancel_returns_false_when_nothing_is_running():
