@@ -39,8 +39,8 @@ function onGoogleSignIn() {
 </script>
 
 <template>
-  <div class="flex min-h-screen flex-col items-center justify-center px-4">
-    <RouterLink to="/" class="mb-8 flex items-center gap-2.5">
+  <div class="px-safe pb-safe pt-safe flex min-h-dvh flex-col items-center justify-center px-4 py-8">
+    <RouterLink to="/" class="mb-8 flex h-11 items-center gap-2.5">
       <span class="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
         <FileText class="h-4 w-4" />
       </span>
@@ -61,21 +61,22 @@ function onGoogleSignIn() {
             autocomplete="name"
             required
             :placeholder="t('auth.fullNamePlaceholder')"
+            class="h-11 md:h-8"
           />
         </div>
         <div class="space-y-1.5">
           <Label for="email">{{ t('auth.emailLabel') }}</Label>
-          <Input id="email" v-model="email" type="email" autocomplete="email" required placeholder="you@example.com" />
+          <Input id="email" v-model="email" type="email" autocomplete="email" required placeholder="you@example.com" class="h-11 md:h-8" />
         </div>
         <div class="space-y-1.5">
           <Label for="password">{{ t('auth.passwordLabel') }}</Label>
-          <Input id="password" v-model="password" type="password" autocomplete="new-password" required minlength="8" />
+          <Input id="password" v-model="password" type="password" autocomplete="new-password" required minlength="8" class="h-11 md:h-8" />
           <p class="text-xs text-muted-foreground">{{ t('auth.signUp.passwordHint') }}</p>
         </div>
 
         <p v-if="errorMessage" class="text-sm text-destructive">{{ errorMessage }}</p>
 
-        <Button type="submit" class="w-full" :disabled="isSubmitting">
+        <Button type="submit" class="h-11 w-full md:h-8" :disabled="isSubmitting">
           {{ isSubmitting ? t('auth.signUp.submitting') : t('auth.signUp.submit') }}
         </Button>
       </form>
@@ -86,14 +87,14 @@ function onGoogleSignIn() {
         <div class="h-px flex-1 bg-border" />
       </div>
 
-      <Button type="button" variant="outline" class="w-full" @click="onGoogleSignIn">
+      <Button type="button" variant="outline" class="h-11 w-full md:h-8" @click="onGoogleSignIn">
         <GoogleIcon />
         {{ t('auth.continueWithGoogle') }}
       </Button>
 
       <p class="mt-5 text-center text-sm text-muted-foreground">
         {{ t('auth.signUp.haveAccount') }}
-        <RouterLink to="/sign-in" class="font-medium text-primary hover:underline">
+        <RouterLink to="/sign-in" class="py-2 font-medium text-primary hover:underline">
           {{ t('auth.signUp.switchToSignIn') }}
         </RouterLink>
       </p>

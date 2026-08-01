@@ -67,6 +67,9 @@ export default {
     upload: {
       dragHint: 'Drag a document here, or',
       browseLink: 'browse your files',
+      // Mobile-only actions; the desktop dropzone keeps dragHint/browseLink.
+      takePhoto: 'Take photo',
+      chooseFile: 'Choose file',
       fileHint: 'PDF, PNG, JPEG, TIFF, or WEBP — up to 25 MB',
       unsupportedTitle: 'Unsupported file type',
       unsupportedBody: 'Upload a PDF, PNG, JPEG, TIFF, or WEBP file.',
@@ -88,6 +91,9 @@ export default {
     },
     details: {
       emptyState: 'Select a document on the left to see its details.',
+      // Labels the mobile back control. Named for the destination, the way
+      // platform back buttons are, so it reads as "‹ Documents".
+      backToList: 'Documents',
       analyzing: 'Reading & analyzing this document…',
       analyzingHint: 'OCR and AI extraction usually take a few seconds per page.',
       timeRemaining: '~{time} remaining',

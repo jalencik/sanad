@@ -11,11 +11,11 @@ const languages = ['Uzbek', 'Russian', 'English', 'Karakalpak', 'Kazakh', 'Tajik
 </script>
 
 <template>
-  <div class="flex min-h-screen flex-col">
+  <div class="px-safe flex min-h-dvh flex-col">
     <TopBar :show-workspace-link="true" />
 
     <!-- Hero: asymmetric two-column, not a centered badge+H1 -->
-    <section class="mx-auto w-full max-w-[1600px] px-6 pb-16 pt-14 md:pt-20">
+    <section class="mx-auto w-full max-w-[1600px] px-4 md:px-6 pb-16 pt-14 md:pt-20">
       <div class="grid gap-12 md:grid-cols-[1.05fr_0.95fr] md:items-center">
         <div>
           <h1 class="font-display max-w-xl text-4xl leading-[1.1] text-foreground md:text-5xl">
@@ -25,7 +25,7 @@ const languages = ['Uzbek', 'Russian', 'English', 'Karakalpak', 'Kazakh', 'Tajik
             {{ t('landing.heroSubtitle') }}
           </p>
           <div class="mt-8 flex flex-wrap items-center gap-3">
-            <Button size="lg" as-child>
+            <Button size="lg" as-child class="h-11 px-5 md:h-9 md:px-2.5">
               <RouterLink to="/app">
                 {{ t('landing.ctaOpenWorkspace') }}
                 <ArrowRight class="h-4 w-4" />
@@ -99,7 +99,7 @@ const languages = ['Uzbek', 'Russian', 'English', 'Karakalpak', 'Kazakh', 'Tajik
 
     <!-- Pipeline: three unevenly-weighted stages, deliberately not identical icon cards -->
     <section class="border-t border-border bg-muted/40">
-      <div class="mx-auto grid max-w-[1600px] gap-8 px-6 py-16 md:grid-cols-12">
+      <div class="mx-auto grid max-w-[1600px] gap-8 px-4 md:px-6 py-16 md:grid-cols-12">
         <div class="md:col-span-4">
           <ScanText class="h-5 w-5 text-primary" />
           <h2 class="font-display mt-3 text-xl text-foreground">{{ t('landing.pipeline.readTitle') }}</h2>
@@ -128,7 +128,7 @@ const languages = ['Uzbek', 'Russian', 'English', 'Karakalpak', 'Kazakh', 'Tajik
     </section>
 
     <!-- Languages -->
-    <section class="mx-auto w-full max-w-[1600px] px-6 py-16">
+    <section class="mx-auto w-full max-w-[1600px] px-4 md:px-6 py-16">
       <div class="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
         <div class="flex items-center gap-3">
           <Languages class="h-5 w-5 text-muted-foreground" />
@@ -148,12 +148,12 @@ const languages = ['Uzbek', 'Russian', 'English', 'Karakalpak', 'Kazakh', 'Tajik
 
     <!-- Closing CTA -->
     <section class="border-t border-border">
-      <div class="mx-auto flex max-w-[1600px] flex-col items-start gap-4 px-6 py-16 md:flex-row md:items-center md:justify-between">
+      <div class="mx-auto flex max-w-[1600px] flex-col items-start gap-4 px-4 md:px-6 py-16 md:flex-row md:items-center md:justify-between">
         <div>
           <h2 class="font-display text-2xl text-foreground">{{ t('landing.closingTitle') }}</h2>
           <p class="mt-1 text-sm text-muted-foreground">{{ t('landing.closingSubtitle') }}</p>
         </div>
-        <Button size="lg" as-child>
+        <Button size="lg" as-child class="h-11 px-5 md:h-9 md:px-2.5">
           <RouterLink to="/app">
             {{ t('landing.ctaOpenWorkspace') }}
             <ArrowRight class="h-4 w-4" />
@@ -163,7 +163,7 @@ const languages = ['Uzbek', 'Russian', 'English', 'Karakalpak', 'Kazakh', 'Tajik
     </section>
 
     <footer class="border-t border-border">
-      <div class="mx-auto flex max-w-[1600px] flex-col gap-2 px-6 py-8 text-xs text-muted-foreground md:flex-row md:items-center md:justify-between">
+      <div class="pb-safe mx-auto flex max-w-[1600px] flex-col gap-2 px-4 py-8 text-xs text-muted-foreground md:flex-row md:items-center md:justify-between md:px-6">
         <span>{{ t('landing.footerTagline') }}</span>
         <span>{{ t('landing.footerStack') }}</span>
       </div>

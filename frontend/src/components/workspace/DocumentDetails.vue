@@ -55,7 +55,7 @@ const fields = computed(() => {
 </script>
 
 <template>
-  <div class="p-5">
+  <div class="p-4 md:p-5">
     <div v-if="!doc" class="flex h-full items-center justify-center py-10 text-sm text-muted-foreground">
       {{ t('workspace.details.emptyState') }}
     </div>
@@ -64,7 +64,7 @@ const fields = computed(() => {
       <div class="flex justify-start">
         <button
           type="button"
-          class="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-50"
+          class="inline-flex h-11 items-center gap-1.5 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-50 md:h-auto md:gap-1 md:rounded md:px-1.5 md:py-1 md:text-xs"
           :disabled="isCancelling"
           @click="handleCancel"
         >
@@ -102,30 +102,38 @@ const fields = computed(() => {
     </div>
 
     <div v-else class="space-y-4">
-      <div class="flex items-start justify-between gap-3">
-        <div>
+      <!-- Stacks below md so a long filename doesn't squeeze the action into a
+           sliver; side by side from md up, exactly as before. -->
+      <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div class="min-w-0">
           <h2 class="font-display text-xl text-foreground">
             {{ formatDocumentType(doc.document_type, t('workspace.details.unclassified')) }}
           </h2>
-          <p class="text-xs text-muted-foreground">
+          <p class="break-words text-xs text-muted-foreground">
             {{ doc.original_filename }} · {{ formatFileSize(doc.file_size) }} · {{ formatDate(doc.created_at, locale as SupportedLocale) }}
           </p>
         </div>
+        <!-- A real 44px button on touch; reverts to the original bare text
+             link from md up so desktop is untouched. -->
         <a
           :href="documentFileUrl(doc.id)"
           target="_blank"
           rel="noopener"
-          class="flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline"
+          class="inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-border px-4 text-sm font-medium text-primary transition-colors active:bg-muted md:h-auto md:gap-1 md:rounded-none md:border-0 md:px-0 md:text-xs md:hover:underline"
         >
           {{ t('workspace.details.viewOriginal') }}
-          <ExternalLink class="h-3 w-3" />
+          <ExternalLink class="h-3.5 w-3.5 md:h-3 md:w-3" />
         </a>
       </div>
 
-      <dl class="grid grid-cols-2 gap-x-6 gap-y-3">
+      <!-- One column on phones: two columns of extracted values at 375px left
+           every field truncated to the point of uselessness. break-words also
+           replaces truncate, because a document number you can't finish
+           reading is the one thing this screen exists to show you. -->
+      <dl class="grid grid-cols-1 gap-x-6 gap-y-3 md:grid-cols-2">
         <div v-for="[label, value] in fields" :key="label" class="min-w-0">
           <dt class="text-xs capitalize text-muted-foreground">{{ label }}</dt>
-          <dd class="truncate text-sm text-foreground">{{ value }}</dd>
+          <dd class="break-words text-sm text-foreground">{{ value }}</dd>
         </div>
       </dl>
 

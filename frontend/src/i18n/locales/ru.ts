@@ -67,6 +67,8 @@ export default {
     upload: {
       dragHint: 'Перетащите документ сюда или',
       browseLink: 'выберите файл',
+      takePhoto: 'Сфотографировать',
+      chooseFile: 'Выбрать файл',
       fileHint: 'PDF, PNG, JPEG, TIFF или WEBP — до 25 МБ',
       unsupportedTitle: 'Неподдерживаемый тип файла',
       unsupportedBody: 'Загрузите файл PDF, PNG, JPEG, TIFF или WEBP.',
@@ -88,6 +90,7 @@ export default {
     },
     details: {
       emptyState: 'Выберите документ слева, чтобы увидеть подробности.',
+      backToList: 'Документы',
       analyzing: 'Документ считывается и анализируется…',
       analyzingHint: 'OCR и анализ ИИ обычно занимают несколько секунд на страницу.',
       timeRemaining: 'осталось ~{time}',

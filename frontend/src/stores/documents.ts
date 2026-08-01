@@ -55,6 +55,10 @@ export const useDocumentsStore = defineStore('documents', {
         this.documents.unshift(created)
         this.maybeStartPolling()
         await this.selectDocument(created.id)
+        // Returned so the caller can navigate to /app/:id. Selection is
+        // already applied here, so WorkspaceView's route watcher sees a
+        // matching id and skips a redundant refetch.
+        return created
       } finally {
         this.isUploading = false
       }
