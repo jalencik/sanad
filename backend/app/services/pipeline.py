@@ -88,6 +88,17 @@ ANALYSIS_TIMEOUT_SECONDS = 360
 
 CANCELLED_MESSAGE = "Cancelled."
 
+# How many times recover_stuck_documents() will resume the same document
+# across separate restarts before giving up on it. Without this cap, a
+# document that reliably crashes the whole process while being worked on -
+# for any reason, not necessarily memory - gets retried by every single
+# restart forever: crash, restart, resume the same poison-pill document,
+# crash again. A cap this low means real, temporary blips (a network hiccup
+# talking to the AI provider, one bad restart) still get retried, while a
+# document that's genuinely fatal to process stops taking the whole service
+# down with it within a few restarts instead of indefinitely.
+MAX_RECOVERY_ATTEMPTS = 3
+
 
 class PipelineError(Exception):
     """A pipeline failure whose message is already safe to show the user
@@ -441,14 +452,42 @@ async def recover_stuck_documents() -> list[asyncio.Task[None]]:
     process's memory (FastAPI BackgroundTasks, no durable queue) - anything
     still pending/processing belongs to a process that no longer exists (a
     redeploy, a crash, a free-tier instance recycle), so it's safe to assume
-    every one of these was abandoned and pick it back up."""
+    every one of these was abandoned and pick it back up.
+
+    A document already at MAX_RECOVERY_ATTEMPTS is the exception: it gets
+    marked failed here instead of resumed again. recovery_attempts and this
+    decision both live in the same transaction as everything else read here,
+    and _spawn() is only ever called after that transaction has committed
+    and the session has closed - matching the ordering this function already
+    relied on before recovery_attempts existed, so a freshly spawned task's
+    own (separate) session is never racing this one's writes.
+    """
+    to_resume: list[uuid.UUID] = []
+
     async with async_session_factory() as session:
         result = await session.execute(
-            select(Document.id).where(Document.status.in_([DocumentStatus.PENDING, DocumentStatus.PROCESSING]))
+            select(Document).where(Document.status.in_([DocumentStatus.PENDING, DocumentStatus.PROCESSING]))
         )
-        stuck_ids = [row[0] for row in result.all()]
 
-    if stuck_ids:
-        logger.info("Resuming %d document(s) left mid-processing by a previous run", len(stuck_ids))
+        for document in result.scalars().all():
+            if document.recovery_attempts >= MAX_RECOVERY_ATTEMPTS:
+                logger.error(
+                    "Document %s failed to complete after %d recovery attempts - giving up",
+                    document.id,
+                    document.recovery_attempts,
+                )
+                document.status = DocumentStatus.ERROR
+                document.error_message = (
+                    "This document couldn't be processed after several attempts. Please try re-uploading it."
+                )
+                continue
 
-    return [_spawn(document_id) for document_id in stuck_ids]
+            document.recovery_attempts += 1
+            to_resume.append(document.id)
+
+        await session.commit()
+
+    if to_resume:
+        logger.info("Resuming %d document(s) left mid-processing by a previous run", len(to_resume))
+
+    return [_spawn(document_id) for document_id in to_resume]

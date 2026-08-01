@@ -44,6 +44,13 @@ class Document(Base):
     # restart) - lets the ETA estimate answer "how long has this really been
     # running", independent of progress_percent's coarse checkpoints.
     processing_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Incremented once per restart that resumes this document while it's
+    # still pending/processing - see recover_stuck_documents in
+    # app/services/pipeline.py. Without a durable (survives-a-restart) count
+    # here, a document that's reliably fatal to process - for any reason,
+    # not just OOM - gets retried by every single restart forever, since
+    # in-memory state can't survive the crash that triggers the next one.
+    recovery_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     ocr_text: Mapped[str | None] = mapped_column(Text, nullable=True)

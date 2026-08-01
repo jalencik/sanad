@@ -573,3 +573,59 @@ async def test_recover_stuck_documents_requeues_only_pending_and_processing():
 
     assert pending_doc.status == DocumentStatus.DONE
     assert processing_doc.status == DocumentStatus.DONE
+
+
+async def test_recover_stuck_documents_gives_up_after_max_attempts_instead_of_looping_forever():
+    # Regression guard: recover_stuck_documents() used to resume every stuck
+    # document on every single restart, forever, with no memory of how many
+    # times it had already tried. A document that's reliably fatal to
+    # process - for any reason, not necessarily memory - would crash the
+    # whole process again each time, which triggers another restart, which
+    # resumes it again: an infinite crash loop from a single document, with
+    # zero new user activity required to keep it going.
+    #
+    # _spawn is patched to a no-op here specifically so this test proves the
+    # give-up *decision* in isolation - actually running process_document
+    # would need a real pipeline outcome per call, which is exactly the
+    # detail this test isn't about.
+    user_id = await _create_test_user()
+
+    async with async_session_factory() as session:
+        document = Document(
+            user_id=user_id,
+            original_filename="poison-pill.png",
+            file_content=b"fake image bytes",
+            mime_type="image/png",
+            file_size=10,
+            status=DocumentStatus.PROCESSING,
+            recovery_attempts=0,
+        )
+        session.add(document)
+        await session.commit()
+        await session.refresh(document)
+        document_id = document.id
+
+    def _noop_spawn(_document_id):
+        future = asyncio.get_event_loop().create_future()
+        future.set_result(None)
+        return future
+
+    with patch("app.services.pipeline._spawn", side_effect=_noop_spawn):
+        # Simulates MAX_RECOVERY_ATTEMPTS restarts in a row where the
+        # document never finishes (still PROCESSING every time recovery
+        # runs) - exactly what a document that reliably crashes the process
+        # looks like from recover_stuck_documents()'s point of view.
+        for _ in range(pipeline.MAX_RECOVERY_ATTEMPTS):
+            resumed = await recover_stuck_documents()
+            assert len(resumed) == 1, "should still be resumed while under the attempt cap"
+
+        # One more restart, now that the cap has been reached.
+        resumed_after_giving_up = await recover_stuck_documents()
+
+    assert resumed_after_giving_up == [], "should stop resuming once MAX_RECOVERY_ATTEMPTS is reached"
+
+    async with async_session_factory() as session:
+        refreshed = await session.get(Document, document_id)
+        assert refreshed.status == DocumentStatus.ERROR
+        assert refreshed.recovery_attempts == pipeline.MAX_RECOVERY_ATTEMPTS
+        assert "several attempts" in refreshed.error_message
